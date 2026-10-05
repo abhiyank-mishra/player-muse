@@ -88,10 +88,10 @@ export default function SearchUI({ state, actions }: SearchUIProps) {
 
   return (
     <div className="w-full text-white">
-      {/* Mobile backdrop for outside tap dismiss & background dimming */}
+      {/* Mobile transparent overlay for outside tap dismiss without blurring the screen */}
       {showSuggestions && suggestions.length > 0 && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm sm:hidden"
+          className="fixed inset-0 z-40 sm:hidden"
           onClick={() => setShowSuggestions(false)}
           onTouchStart={() => setShowSuggestions(false)}
         />

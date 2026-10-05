@@ -18,9 +18,41 @@ function cleanTrackName(title: string): string {
     .trim();
 }
 
+function cleanForComparison(str: string): string {
+  return (str || '')
+    .toLowerCase()
+    .replace(/&amp;/g, '&')
+    .replace(/&#039;/g, "'")
+    .replace(/\s*\(.*?\)/g, '')
+    .replace(/\s*\[.*?\]/g, '')
+    .replace(/[^a-z0-9\s]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function isTitleMatch(expectedTitle: string, candidateTitle: string): boolean {
+  const eClean = cleanForComparison(expectedTitle);
+  const cClean = cleanForComparison(candidateTitle);
+  if (!eClean || !cClean) return false;
+  if (eClean === cClean) return true;
+
+  const stopWords = ['the', 'and', 'ost', 'full', 'song', 'video', 'audio', 'lyrical'];
+  const eTokens = eClean.split(' ').filter(w => w.length > 1 && !stopWords.includes(w));
+  const cTokens = cClean.split(' ').filter(w => w.length > 1 && !stopWords.includes(w));
+  if (eTokens.length === 0 || cTokens.length === 0) return false;
+
+  const cSet = new Set(cTokens);
+  let matches = 0;
+  for (const t of eTokens) {
+    if (cSet.has(t)) matches++;
+  }
+  const recall = matches / eTokens.length;
+  return recall >= 0.7 && matches >= 1;
+}
+
 /**
  * Resolves a high-fidelity (320kbps / 160kbps) direct CDN audio URL
- * for any given song title & artist.
+ * ONLY when a candidate strictly matches the song title.
  */
 export async function resolveAudioStreamFallback(title: string, artist = ''): Promise<string | null> {
   const cleanTitle = cleanTrackName(title);
@@ -42,12 +74,15 @@ export async function resolveAudioStreamFallback(title: string, artist = ''): Pr
       const data = await res.json();
       const results = data.results || [];
       if (Array.isArray(results) && results.length > 0) {
-        for (const item of results.slice(0, 3)) {
-          const enc = item.more_info?.encrypted_media_url;
-          if (enc) {
-            const streamUrl = decodeSaavnUrl(enc);
-            if (streamUrl && streamUrl.startsWith('https://')) {
-              return streamUrl;
+        for (const item of results.slice(0, 4)) {
+          const itemTitle = item.title || item.name || item.more_info?.song || '';
+          if (isTitleMatch(cleanTitle, itemTitle)) {
+            const enc = item.more_info?.encrypted_media_url;
+            if (enc) {
+              const streamUrl = decodeSaavnUrl(enc);
+              if (streamUrl && streamUrl.startsWith('https://')) {
+                return streamUrl;
+              }
             }
           }
         }
@@ -72,11 +107,16 @@ export async function resolveAudioStreamFallback(title: string, artist = ''): Pr
         const data = await res.json();
         const results = data.results || [];
         if (Array.isArray(results) && results.length > 0) {
-          const enc = results[0].more_info?.encrypted_media_url;
-          if (enc) {
-            const streamUrl = decodeSaavnUrl(enc);
-            if (streamUrl && streamUrl.startsWith('https://')) {
-              return streamUrl;
+          for (const item of results.slice(0, 4)) {
+            const itemTitle = item.title || item.name || item.more_info?.song || '';
+            if (isTitleMatch(cleanTitle, itemTitle)) {
+              const enc = item.more_info?.encrypted_media_url;
+              if (enc) {
+                const streamUrl = decodeSaavnUrl(enc);
+                if (streamUrl && streamUrl.startsWith('https://')) {
+                  return streamUrl;
+                }
+              }
             }
           }
         }

@@ -9,8 +9,75 @@ interface CachedFormat {
   expiresAt: number;
 }
 
+interface YouTubeSession {
+  visitorData?: string;
+  cookie?: string;
+  expiresAt: number;
+}
+
 // In-memory cache for resolved stream URLs (2-hour TTL)
 const audioStreamCache = new Map<string, CachedFormat>();
+let sessionCache: YouTubeSession | null = null;
+
+async function getYouTubeSession(): Promise<YouTubeSession> {
+  if (sessionCache && Date.now() < sessionCache.expiresAt) {
+    return sessionCache;
+  }
+
+  // 1. Try public visitor_id endpoint
+  try {
+    const res = await fetch('https://www.youtube.com/youtubei/v1/visitor_id', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion: '2.20240101.01.00',
+            hl: 'en',
+            gl: 'IN'
+          }
+        }
+      }),
+      signal: AbortSignal.timeout(3000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const token = data.responseContext?.visitorData;
+      if (token) {
+        sessionCache = { visitorData: token, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
+        return sessionCache;
+      }
+    }
+  } catch (e) {
+    console.warn('[Stream] visitor_id fetch failed:', e);
+  }
+
+  // 2. Fallback: scrape visitorData and cookie from homepage
+  try {
+    const res = await fetch('https://www.youtube.com', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      signal: AbortSignal.timeout(3500)
+    });
+    const cookie = res.headers.get('set-cookie') || undefined;
+    const html = await res.text();
+    const visitorMatch = html.match(/"VISITOR_DATA":"([^"]+)"/);
+    const visitorData = visitorMatch ? visitorMatch[1] : undefined;
+    if (visitorData || cookie) {
+      sessionCache = { visitorData, cookie, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
+      return sessionCache;
+    }
+  } catch (e) {
+    console.warn('[Stream] Homepage visitor scrape failed:', e);
+  }
+
+  return { expiresAt: Date.now() + 60 * 1000 };
+}
 
 async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): Promise<{ stream?: CachedFormat; debug?: any }> {
   if (!bypassCache) {
@@ -21,14 +88,18 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
   }
 
   try {
+    const session = await getYouTubeSession();
+
     const playerBody = {
       videoId: videoId,
       context: {
         client: {
           clientName: 'ANDROID',
           clientVersion: '20.10.38',
+          androidSdkVersion: 34,
           hl: 'en',
-          gl: 'IN'
+          gl: 'IN',
+          ...(session.visitorData ? { visitorData: session.visitorData } : {})
         }
       },
       playbackContext: {
@@ -40,12 +111,22 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
       racyCheckOk: true
     };
 
+    const reqHeaders: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+      'X-YouTube-Client-Name': '3',
+      'X-YouTube-Client-Version': '20.10.38'
+    };
+    if (session.visitorData) {
+      reqHeaders['X-Goog-Visitor-Id'] = session.visitorData;
+    }
+    if (session.cookie) {
+      reqHeaders['Cookie'] = session.cookie;
+    }
+
     const res = await fetch('https://www.youtube.com/youtubei/v1/player', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip'
-      },
+      headers: reqHeaders,
       body: JSON.stringify(playerBody)
     });
 
@@ -80,7 +161,7 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
 
     if (!best || !best.url) {
       console.error(`[Stream] No playable stream format found for ${videoId}`, data.playabilityStatus);
-      return { debug: { playability: data.playabilityStatus, formatsCount: data.streamingData?.formats?.length, adaptiveCount: data.streamingData?.adaptiveFormats?.length, hasStreamingData: !!data.streamingData } };
+      return { debug: { playability: data.playabilityStatus, formatsCount: data.streamingData?.formats?.length, adaptiveCount: data.streamingData?.adaptiveFormats?.length, hasStreamingData: !!data.streamingData, sessionActive: !!session.visitorData } };
     }
 
     const entry: CachedFormat = {
@@ -106,6 +187,7 @@ export async function GET(req: NextRequest) {
   let id = searchParams.get('id') || '';
   let title = searchParams.get('title') || '';
   let artist = searchParams.get('artist') || '';
+  const isDebug = searchParams.get('debug') === '1';
 
   // Clean video ID
   if (id.startsWith('yt_')) {
@@ -122,7 +204,7 @@ export async function GET(req: NextRequest) {
     if (cachedCdn) {
       return NextResponse.redirect(cachedCdn, {
         status: 302,
-        headers: { 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' }
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
@@ -143,7 +225,7 @@ export async function GET(req: NextRequest) {
         fallbackCdnCache.set(id, cdnUrl);
         return NextResponse.redirect(cdnUrl, {
           status: 302,
-          headers: { 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' }
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Access-Control-Allow-Origin': '*' }
         });
       }
     }
@@ -154,7 +236,16 @@ export async function GET(req: NextRequest) {
   const result = await resolveYouTubeAudioStream(id);
   let streamInfo = result.stream;
 
-  // 2. If YouTube stream could not be resolved (e.g. Vercel datacenter IP block), seamlessly fallback
+  if (isDebug) {
+    return NextResponse.json({
+      id,
+      hasStream: !!streamInfo,
+      streamUrl: streamInfo?.url?.slice(0, 80),
+      debug: result.debug
+    });
+  }
+
+  // 2. If YouTube stream could not be resolved, try strict fallback
   if (!streamInfo) {
     const fallbackRedirect = await handleFallback();
     if (fallbackRedirect) return fallbackRedirect;
