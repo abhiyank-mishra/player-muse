@@ -137,7 +137,7 @@ export class YouTubeSearchEngine {
           artist: c.artistHint || 'YouTube',
           album: 'YouTube Music',
           image: [c.image, c.image, c.image],
-          url: `/api/music/stream?id=${c.videoId}`,
+          url: `/api/music/stream?id=${encodeURIComponent(c.videoId)}&title=${encodeURIComponent(c.name)}&artist=${encodeURIComponent(c.artistHint || '')}`,
           duration: c.duration,
           has_lyrics: 'false',
           language: 'hindi',

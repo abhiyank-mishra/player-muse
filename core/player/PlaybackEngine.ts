@@ -130,7 +130,10 @@ export class PlaybackEngine {
     private resolveAudioUrl(): string {
         if (this.song.source === 'youtube' || this.song.id?.startsWith('yt_') || (this.song.url && !this.song.url.startsWith('http') && !this.song.url.startsWith('/'))) {
             const cleanId = (this.song.id?.replace(/^yt_/, '') || this.song.url || '').trim();
-            return `/api/music/stream?id=${encodeURIComponent(cleanId)}`;
+            const params = new URLSearchParams({ id: cleanId });
+            if (this.song.name) params.set('title', this.song.name);
+            if (this.song.artist) params.set('artist', this.song.artist);
+            return `/api/music/stream?${params.toString()}`;
         }
         return this.song.url || '';
     }

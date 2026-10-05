@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { resolveAudioStreamFallback } from '@/lib/audioResolver';
 
 interface CachedFormat {
   url: string;
@@ -98,9 +99,13 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
   }
 }
 
+const fallbackCdnCache = new Map<string, string>();
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   let id = searchParams.get('id') || '';
+  let title = searchParams.get('title') || '';
+  let artist = searchParams.get('artist') || '';
 
   // Clean video ID
   if (id.startsWith('yt_')) {
@@ -111,9 +116,48 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
   }
 
+  // Helper: Try to resolve high-fidelity 320kbps CDN stream when YouTube is blocked by datacenter anti-bot
+  const handleFallback = async () => {
+    const cachedCdn = fallbackCdnCache.get(id);
+    if (cachedCdn) {
+      return NextResponse.redirect(cachedCdn, {
+        status: 302,
+        headers: { 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' }
+      });
+    }
+
+    if (!title) {
+      try {
+        const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`, { signal: AbortSignal.timeout(3000) });
+        if (oembedRes.ok) {
+          const oembed = await oembedRes.json();
+          title = oembed.title || '';
+          artist = oembed.author_name || '';
+        }
+      } catch {}
+    }
+
+    if (title) {
+      const cdnUrl = await resolveAudioStreamFallback(title, artist);
+      if (cdnUrl) {
+        fallbackCdnCache.set(id, cdnUrl);
+        return NextResponse.redirect(cdnUrl, {
+          status: 302,
+          headers: { 'Cache-Control': 'public, max-age=3600', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+    }
+    return null;
+  };
+
+  // 1. Try YouTube stream first
   const result = await resolveYouTubeAudioStream(id);
   let streamInfo = result.stream;
+
+  // 2. If YouTube stream could not be resolved (e.g. Vercel datacenter IP block), seamlessly fallback
   if (!streamInfo) {
+    const fallbackRedirect = await handleFallback();
+    if (fallbackRedirect) return fallbackRedirect;
     return NextResponse.json({ error: 'Audio stream unavailable', debug: result.debug }, { status: 404 });
   }
 
@@ -141,10 +185,17 @@ export async function GET(req: NextRequest) {
           headers: upstreamHeaders
         });
       }
+
+      if (upstreamRes.status === 403) {
+        const fallbackRedirect = await handleFallback();
+        if (fallbackRedirect) return fallbackRedirect;
+      }
     }
 
     if (!upstreamRes.ok && upstreamRes.status !== 206) {
       console.error(`[Stream] Upstream returned status ${upstreamRes.status} for ${id}`);
+      const fallbackRedirect = await handleFallback();
+      if (fallbackRedirect) return fallbackRedirect;
       return NextResponse.json({ error: 'Upstream stream error' }, { status: upstreamRes.status });
     }
 
@@ -168,6 +219,8 @@ export async function GET(req: NextRequest) {
     });
   } catch (streamErr) {
     console.error(`[Stream] Error streaming chunk for ${id}:`, streamErr);
+    const fallbackRedirect = await handleFallback();
+    if (fallbackRedirect) return fallbackRedirect;
     return NextResponse.json({ error: 'Streaming error' }, { status: 502 });
   }
 }
@@ -180,12 +233,22 @@ export async function HEAD(req: NextRequest) {
   if (!id) return new Response(null, { status: 400 });
   const result = await resolveYouTubeAudioStream(id);
   const streamInfo = result?.stream;
-  if (!streamInfo) return new Response(null, { status: 404 });
+  if (!streamInfo) {
+    return new Response(null, {
+      status: 200,
+      headers: {
+        'Content-Type': 'audio/mp4',
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
 
   const headers = new Headers();
   const contentType = streamInfo.mimeType.includes('mp4') ? 'audio/mp4' : streamInfo.mimeType;
   headers.set('Content-Type', contentType);
   headers.set('Accept-Ranges', 'bytes');
+  headers.set('Access-Control-Allow-Origin', '*');
   if (streamInfo.contentLength) {
     headers.set('Content-Length', streamInfo.contentLength.toString());
   }
