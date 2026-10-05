@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>User Music Library</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#D9008D",
+                        "background-light": "#F3F4F6",
+                        "background-dark": "#050505",
+                        "surface-dark": "#121212",
+                        "surface-light": "#FFFFFF",
+                        "accent-purple": "#4A148C",
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    borderRadius: {
+                        DEFAULT: "12px",
+                        'xl': "16px",
+                        '2xl': "24px",
+                    },
+                },
+            },
+        };
+    </script>
+<style>
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .search-glow:focus-within {
+            box-shadow: 0 0 15px rgba(217, 0, 141, 0.3);
+            border-color: #D9008D;
+        }
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light dark:bg-background-dark text-gray-900 dark:text-white font-sans antialiased selection:bg-primary selection:text-white transition-colors duration-300">
+<div class="max-w-md mx-auto min-h-screen relative pb-28">
+<header class="sticky top-0 z-30 bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-md px-6 py-4 flex items-center justify-between">
+<h1 class="text-3xl font-extrabold tracking-tight">
+                Library
+            </h1>
+<div class="flex gap-2">
+<button aria-label="Search" class="p-3 rounded-full bg-gray-200 dark:bg-[#1E1E1E] hover:bg-gray-300 dark:hover:bg-[#2A2A2A] transition-colors flex items-center justify-center group">
+<span class="material-icons-round text-gray-600 dark:text-gray-300 group-hover:text-primary transition-colors">search</span>
+</button>
+<button aria-label="Settings" class="p-3 rounded-full bg-gray-200 dark:bg-[#1E1E1E] hover:bg-gray-300 dark:hover:bg-[#2A2A2A] transition-colors flex items-center justify-center group">
+<img alt="Profile" class="w-6 h-6 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-LKqA51P9GM8-A80dmkc2RdFaMxC0s3y4X7zpfEdc55JpUfaHmpvfIpG94d3fjhchwiU0dhNn6kROpaKch56kr87n3hSnqL9WhwfNw5rUDUNLA2J-aXquQ8Ebb0PJV6sE6VbBGS0ZHEs4ZZzpZPDagYwiu86yxw-VSphAN-1fB04JblB9_87uWv_Bh5NGX12XBj0vRiB_N-TSzuu5nYKLx6eDww7DnCXwpmq_6-1Id5oldUW9_cO7n6pL0OC8w5E5LAlzql3YYnCF"/>
+</button>
+</div>
+</header>
+<div class="px-6 py-2">
+<div class="flex p-1 bg-gray-200 dark:bg-[#1E1E1E] rounded-xl">
+<button class="flex-1 py-2 px-4 rounded-lg bg-white dark:bg-primary text-gray-900 dark:text-white font-semibold text-sm shadow-sm transition-all duration-300">
+                    Playlists
+                </button>
+<button class="flex-1 py-2 px-4 rounded-lg bg-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium text-sm transition-all duration-300">
+                    Artists
+                </button>
+<button class="flex-1 py-2 px-4 rounded-lg bg-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium text-sm transition-all duration-300">
+                    Albums
+                </button>
+</div>
+</div>
+<main class="px-6 mt-6">
+<div class="flex items-center justify-between mb-4">
+<h2 class="text-xl font-bold text-gray-900 dark:text-white">Your Playlists</h2>
+<button class="text-primary text-sm font-semibold hover:text-pink-400">Sort by</button>
+</div>
+<button class="w-full flex items-center gap-4 p-3 mb-4 rounded-2xl bg-white dark:bg-[#121212] border border-gray-100 dark:border-white/5 hover:border-primary/50 group transition-all duration-300">
+<div class="w-16 h-16 rounded-xl bg-gray-100 dark:bg-[#252525] flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors duration-300">
+<span class="material-icons-round text-3xl text-primary dark:text-white group-hover:text-white">add</span>
+</div>
+<div class="flex-1 text-left">
+<h3 class="font-bold text-gray-900 dark:text-white text-lg group-hover:text-primary transition-colors">Create New Playlist</h3>
+<p class="text-sm text-gray-500 dark:text-gray-400">Add songs &amp; build your vibe</p>
+</div>
+<span class="material-icons-round text-gray-400 group-hover:text-primary mr-2">chevron_right</span>
+</button>
+<div class="space-y-3">
+<div class="group flex items-center gap-4 p-2 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer">
+<div class="relative w-16 h-16 rounded-xl overflow-hidden shadow-lg">
+<div class="absolute inset-0 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center">
+<span class="material-icons-round text-white text-2xl">favorite</span>
+</div>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-gray-900 dark:text-white truncate text-base">Liked Songs</h3>
+<p class="text-sm text-gray-500 dark:text-gray-400 truncate">142 songs • Updated today</p>
+</div>
+<span class="material-icons-round text-gray-400 group-hover:text-white">chevron_right</span>
+</div>
+<div class="group flex items-center gap-4 p-2 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer">
+<div class="w-16 h-16 rounded-xl overflow-hidden bg-gray-800 shadow-lg">
+<img alt="Chill vibes cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcFcIGM6XIE4fiZcNQKeng4mzVIrx9t_diGuwpPCiL71aF3_omeIKNHiLXMDkBew4nCtr_h5FjxbBBldaega2UtVx9sh89oSrKuWFKIA9Biymx4Tqlc7c2ZDhVvXhpBgiwLF1KoQNyGvb90R_g84-a1QHVPTx4d50Wga-R_Yugl18eNQochBtXjuVwqHGqFyKb20uzC-xUE6dhHGlBJsc_nTP4mNmxLD0LG_P-evjfZO-aT2GHvoM8ZiPqa2_32-MH9Q6xy_qLp7uY"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-gray-900 dark:text-white truncate text-base">Chill Late Night</h3>
+<p class="text-sm text-gray-500 dark:text-gray-400 truncate">45 songs • By User</p>
+</div>
+<span class="material-icons-round text-gray-400 group-hover:text-white">chevron_right</span>
+</div>
+<div class="group flex items-center gap-4 p-2 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer">
+<div class="w-16 h-16 rounded-xl overflow-hidden bg-gray-800 shadow-lg">
+<img alt="Gym workout cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCmO_iDXNSH6qEzbEH885czhaa8ZKkjB9zf3IdUjE6nErx-a6wGUIyVOXkM7KSdZdK_gzphgWh_S2ypFjVBfRxZVfeaGIWHKyvY8RxI-TJaw3NiYPQLhGoEtC2IdKfYrEkclHv9cJF9pCiW-nkPWGwM4c66aHLjBf6MczgPszUmrVNAGd2sxzwztNrVOhq3Cvj7ow59yDFWY-z1HUlQlBSa3LvRllpy4gX5szcdMeWPHi_f_dCxmiR8491115SgwLzSnpxNlZASl2Gx"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-gray-900 dark:text-white truncate text-base">Gym Motivation</h3>
+<p class="text-sm text-gray-500 dark:text-gray-400 truncate">78 songs • By User</p>
+</div>
+<span class="material-icons-round text-gray-400 group-hover:text-white">chevron_right</span>
+</div>
+<div class="group flex items-center gap-4 p-2 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer">
+<div class="w-16 h-16 rounded-xl overflow-hidden bg-gray-800 shadow-lg">
+<img alt="Party mix cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_tMKecPHLB8Cl0bnP577KQ1vKFizWEFElehbUqDrIEILVGl3-axFgFwJcw_XtSeC-JTx8Fkt5-xXupKklAVznSZJ859uYb5avn1oMjurOlquRw4B5gEV2hcYEPKQGoMgbGyZ1H0iYKTzSpwl7CmQt2QDK8vuUUSt8k43DwoBXh-PjnOHGZxixDpugHlW2r1t7TKFphIiUzsj2kOE4iZ502wojRiL18pUSuJsPhamSlyK7U1JqhnEF_4Ks6etQ6AAR_df-uVUDKCaV"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-gray-900 dark:text-white truncate text-base">House Party Mix</h3>
+<p class="text-sm text-gray-500 dark:text-gray-400 truncate">120 songs • By DJ X</p>
+</div>
+<span class="material-icons-round text-gray-400 group-hover:text-white">chevron_right</span>
+</div>
+<div class="group flex items-center gap-4 p-2 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer">
+<div class="w-16 h-16 rounded-xl overflow-hidden bg-gray-800 shadow-lg">
+<img alt="Acoustic cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAu3aU5Q6C6pEMWlaLpiNbiOYk1GNQQ5RTeM4asF8lY8wr1E8oGDDXimZ_eFzQ3DYJslR2InkjmGyAc_t4mRpTe-L-wQVmdOdpfnncjS-ybgpD5KJSyvurpfan5v2EhHIaK4FaMMPcfVbmCZue6vMB13nRo98gtNPGnpxvybUvhj-gbcCHJEZs5xsDQdvc9meSOT6P6sJuGZ-fS6H7ctA0tnvnrxA_exfTgqe5NotXoJn9wcybhHkk9h7Lt-EHFpCbmR5zwwl8UMnPT"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-gray-900 dark:text-white truncate text-base">Sunday Morning Acoustic</h3>
+<p class="text-sm text-gray-500 dark:text-gray-400 truncate">32 songs • By User</p>
+</div>
+<span class="material-icons-round text-gray-400 group-hover:text-white">chevron_right</span>
+</div>
+<div class="group flex items-center gap-4 p-2 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer">
+<div class="w-16 h-16 rounded-xl overflow-hidden bg-gray-800 shadow-lg">
+<img alt="Travel cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDQgrjTRwIpGXCsOcJRpu5PmXoDwez_J8vOaR3wxFeTJIquAm8iMMY4GdFNU7ZlVT1D8nx5GNHgUi9ucO1IvQRTQbFMq2G6eVBGOA1ch9rcWsjTZq-LC7ps4dPGLOWEHfJkxCH8hdCehsAOOgfB21HFsy3b-cWYmRn1ANo2v6Mm-37UbFyIlR8pj52tnMH1zVwowaTzSMAN848u5M9v86YKoFG7M09oxJMP4MQ7wn5RH30mY3Lbqwm7eS3nfCBodLb19w2vKk3R7nEk"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-gray-900 dark:text-white truncate text-base">Road Trip 2024</h3>
+<p class="text-sm text-gray-500 dark:text-gray-400 truncate">64 songs • By User</p>
+</div>
+<span class="material-icons-round text-gray-400 group-hover:text-white">chevron_right</span>
+</div>
+</div>
+</main>
+<nav class="fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-[#050505]/95 backdrop-blur-xl border-t border-gray-200 dark:border-white/10 px-6 py-4 z-40">
+<div class="flex justify-between items-center max-w-md mx-auto">
+<button class="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition">
+<span class="material-icons-round text-2xl">home</span>
+<span class="text-[10px] font-medium">Home</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition">
+<span class="material-icons-round text-2xl">search</span>
+<span class="text-[10px] font-medium">Explore</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-primary">
+<span class="material-icons-round text-2xl">library_music</span>
+<span class="text-[10px] font-medium">Library</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition">
+<span class="material-icons-round text-2xl">person</span>
+<span class="text-[10px] font-medium">Profile</span>
+</button>
+</div>
+</nav>
+</div>
+<script>
+        // Check local storage or system preference
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark')
+        } else {
+            document.documentElement.classList.remove('dark')
+        }
+    </script>
+
+</body></html>

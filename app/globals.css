@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter);
+}
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans), sans-serif;
+}
+
+/* Custom Utilities for Premium Glassmorphism */
+@layer utilities {
+  .glass {
+    @apply bg-white/10 backdrop-blur-xl border border-white/10 shadow-xl;
+  }
+  .glass-card {
+    @apply bg-gradient-to-br from-white/5 to-white/0 backdrop-blur-lg border border-white/5 hover:border-white/20 transition-all duration-300;
+  }
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400;
+  }
+}
+
+/* Premium Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.4); /* Purple hint on hover */
+}
+
+/* Hide scrollbar for elements while still allowing scroll */
+.hide-scrollbar, .no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar, .no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.snap-always {
+  scroll-snap-stop: always;
+}
+
+/* Scroll Performance: Prevent overscroll chaining */
+main {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Eliminate 300ms tap delay on mobile */
+a, button, [role="button"], input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* Content sections performance: auto-hide off-screen content for faster scrolling */
+/* Only target heavy vertical grid sections — NOT horizontal scroll rows */
+.grid[class*="grid-cols"] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 400px;
+}
+
+/* Marquee Animation for Song Titles */
+@keyframes marquee {
+  0%, 15% { transform: translateX(0); }
+  85%, 100% { transform: translateX(calc(-100% + 180px)); } /* Adjusted for better fit */
+}
+
+.marquee-container {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.marquee-text {
+  display: inline-block;
+  animation: marquee 10s linear infinite;
+  padding-right: 50px;
+  will-change: transform;
+}
+
+/* Smooth hover transitions for cards (replaces Framer Motion entry animations) */
+.hover\:-translate-y-1:hover {
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
