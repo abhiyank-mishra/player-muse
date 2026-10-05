@@ -11,11 +11,11 @@ interface CachedFormat {
 // In-memory cache for resolved stream URLs (2-hour TTL)
 const audioStreamCache = new Map<string, CachedFormat>();
 
-async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): Promise<CachedFormat | null> {
+async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): Promise<{ stream?: CachedFormat; debug?: any }> {
   if (!bypassCache) {
     const cached = audioStreamCache.get(videoId);
     if (cached && Date.now() < cached.expiresAt) {
-      return cached;
+      return { stream: cached };
     }
   }
 
@@ -49,8 +49,9 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
     });
 
     if (!res.ok) {
-      console.error(`[Stream] YouTube player API returned status ${res.status}`);
-      return null;
+      const errText = await res.text();
+      console.error(`[Stream] YouTube player API returned status ${res.status}:`, errText);
+      return { debug: { status: res.status, errorText: errText.slice(0, 300) } };
     }
 
     const data = await res.json();
@@ -77,8 +78,8 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
     }
 
     if (!best || !best.url) {
-      console.error(`[Stream] No playable stream format found for ${videoId}`);
-      return null;
+      console.error(`[Stream] No playable stream format found for ${videoId}`, data.playabilityStatus);
+      return { debug: { playability: data.playabilityStatus, formatsCount: data.streamingData?.formats?.length, adaptiveCount: data.streamingData?.adaptiveFormats?.length, hasStreamingData: !!data.streamingData } };
     }
 
     const entry: CachedFormat = {
@@ -90,10 +91,10 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
     };
 
     audioStreamCache.set(videoId, entry);
-    return entry;
-  } catch (err) {
+    return { stream: entry };
+  } catch (err: any) {
     console.error(`[Stream] Failed to resolve stream for ${videoId}:`, err);
-    return null;
+    return { debug: { exception: err?.message || String(err) } };
   }
 }
 
@@ -110,9 +111,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
   }
 
-  let streamInfo = await resolveYouTubeAudioStream(id);
+  const result = await resolveYouTubeAudioStream(id);
+  let streamInfo = result.stream;
   if (!streamInfo) {
-    return NextResponse.json({ error: 'Audio stream unavailable' }, { status: 404 });
+    return NextResponse.json({ error: 'Audio stream unavailable', debug: result.debug }, { status: 404 });
   }
 
   const range = req.headers.get('range');
@@ -133,8 +135,8 @@ export async function GET(req: NextRequest) {
       console.warn(`[Stream] Received 403 for ${id}, refreshing stream URL...`);
       audioStreamCache.delete(id);
       const refreshed = await resolveYouTubeAudioStream(id, true);
-      if (refreshed) {
-        streamInfo = refreshed;
+      if (refreshed?.stream) {
+        streamInfo = refreshed.stream;
         upstreamRes = await fetch(streamInfo.url, {
           headers: upstreamHeaders
         });
@@ -176,7 +178,8 @@ export async function HEAD(req: NextRequest) {
   if (id.startsWith('yt_')) id = id.replace(/^yt_/, '');
 
   if (!id) return new Response(null, { status: 400 });
-  const streamInfo = await resolveYouTubeAudioStream(id);
+  const result = await resolveYouTubeAudioStream(id);
+  const streamInfo = result?.stream;
   if (!streamInfo) return new Response(null, { status: 404 });
 
   const headers = new Headers();
