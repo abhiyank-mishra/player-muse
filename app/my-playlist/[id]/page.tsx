@@ -7,12 +7,16 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Song } from '@/lib/types';
 import UniversalPlaylistView from '@/components/UniversalPlaylistView';
 import { userPlaylistsCache } from '@/lib/userPlaylistsCache';
+import ConfirmModal from '@/reusable/ui/modals/ConfirmModal';
+import { useToast } from '@/contexts/ToastContext';
 
 function MyPlaylistDetailContent({ id }: { id: string }) {
   const { user, isPro, loading: authLoading } = useAuth();
+  const { showToast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setQueueConfig } = usePlayer();
+  const [isConfirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const paramName = searchParams.get('name') || '';
   const paramCover = searchParams.get('cover') || '';
@@ -104,6 +108,22 @@ function MyPlaylistDetailContent({ id }: { id: string }) {
     }
   };
 
+  const handleDeletePlaylist = async () => {
+    if (!user || !id) return;
+    try {
+      const { deletePlaylist } = await import('@/lib/ranking');
+      await deletePlaylist(user.uid, id);
+      userPlaylistsCache.removeSingle(user.uid, id);
+      showToast('Playlist deleted', 'info');
+      router.push('/playlists');
+    } catch (err: any) {
+      console.error('Failed to delete playlist:', err);
+      showToast('Failed to delete playlist', 'error');
+    } finally {
+      setConfirmDeleteOpen(false);
+    }
+  };
+
   if (authLoading && !cached) return null;
 
   const coverImg =
@@ -113,27 +133,41 @@ function MyPlaylistDetailContent({ id }: { id: string }) {
     paramCover;
 
   return (
-    <UniversalPlaylistView 
-      title={playlist?.name || paramName || "My Playlist"}
-      subtitle="User Playlist"
-      image={coverImg}
-      songs={playlist?.songs || []}
-      loading={pageLoading && (!playlist?.songs || playlist.songs.length === 0)}
-      onPlay={handlePlay}
-      onPlayAll={handlePlayAll}
-      onRemove={handleRemoveFromPlaylist}
-      hasMore={false}
-      playlistId={id}
-      stats={
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white shadow">
-            {user?.displayName?.[0] || 'U'}
+    <>
+      <UniversalPlaylistView 
+        title={playlist?.name || paramName || "My Playlist"}
+        subtitle="User Playlist"
+        image={coverImg}
+        songs={playlist?.songs || []}
+        loading={pageLoading && (!playlist?.songs || playlist.songs.length === 0)}
+        onPlay={handlePlay}
+        onPlayAll={handlePlayAll}
+        onRemove={handleRemoveFromPlaylist}
+        onDeletePlaylist={() => setConfirmDeleteOpen(true)}
+        hasMore={false}
+        playlistId={id}
+        stats={
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white shadow">
+              {user?.displayName?.[0] || 'U'}
+            </div>
+            <span className="font-semibold text-white text-xs md:text-sm">{user?.displayName || 'My Collection'}</span>
+            <span className="text-zinc-400 text-xs">• {playlist?.songs?.length ?? paramTracks} songs</span>
           </div>
-          <span className="font-semibold text-white text-xs md:text-sm">{user?.displayName || 'My Collection'}</span>
-          <span className="text-zinc-400 text-xs">• {playlist?.songs?.length ?? paramTracks} songs</span>
-        </div>
-      }
-    />
+        }
+      />
+
+      <ConfirmModal 
+        isOpen={isConfirmDeleteOpen}
+        title="Delete Playlist"
+        message={`Are you sure you want to delete "${playlist?.name || paramName || 'this playlist'}"? This cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleDeletePlaylist}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
+    </>
   );
 }
 

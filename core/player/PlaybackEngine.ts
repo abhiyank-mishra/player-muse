@@ -127,61 +127,77 @@ export class PlaybackEngine {
         this.init();
     }
 
-    private resolveAudioUrl(): string {
-        if (this.song.source === 'youtube' || this.song.id?.startsWith('yt_') || (this.song.url && !this.song.url.startsWith('http') && !this.song.url.startsWith('/'))) {
-            const cleanId = (this.song.id?.replace(/^yt_/, '') || this.song.url || '').trim();
-            const params = new URLSearchParams({ id: cleanId });
-            if (this.song.name) params.set('title', this.song.name);
-            if (this.song.artist) params.set('artist', this.song.artist);
-            return `/api/music/stream?${params.toString()}`;
-        }
-        return this.song.url || '';
-    }
-
     private init() {
-        const streamUrl = this.resolveAudioUrl();
-        this.sound = new Howl({
-            src: [streamUrl],
-            html5: true, // Required for audio streaming, Range requests, and mobile background audio!
-            format: ['mp4', 'm4a', 'webm', 'mp3', 'aac', 'wav'],
-            volume: this.volumeLevel,
-            preload: true, // Start loading immediately
-            onload: () => {
-                this.loaded = true;
-                const duration = this.sound?.duration() || this.song.duration || 0;
-                this.callbacks.onLoad(duration);
-                // If a seek was requested before loading finished, apply it now
-                if (this.pendingSeek !== null) {
-                    const seekTo = this.pendingSeek;
-                    this.pendingSeek = null;
-                    this.sound?.seek(seekTo);
-                }
-            },
-            onplay: this.callbacks.onPlay,
-            onpause: this.callbacks.onPause,
-            onend: () => {
-                // CRITICAL: Keep MediaSession in 'playing' state during the
-                // song transition so mobile browsers don't kill the tab.
-                if ('mediaSession' in navigator) {
-                    navigator.mediaSession.playbackState = 'playing';
-                }
-                this.callbacks.onEnd();
-            },
-            onloaderror: (id, err) => {
-                console.error("Howler Load Error:", err, "URL:", streamUrl);
+        if (this.song.source !== 'youtube') {
+            if (!this.song.url || typeof this.song.url !== 'string' || this.song.url.trim() === '' || this.song.url.includes('undefined')) {
+                console.warn('[PlaybackEngine] Cannot initialize Howler without a valid URL:', this.song.name, this.song.url);
                 this.loaded = false;
-                this.callbacks.onLoadError(id, err);
-            },
-            onplayerror: (id, err) => {
-                console.warn("Howler Play Error (Autoplay block):", err);
-                this.callbacks.onPlayError(id, err);
-                if (this.sound) {
-                    this.sound.once('unlock', () => {
-                        this.sound?.play();
-                    });
+                this.callbacks.onLoadError(0, new Error('Invalid or missing audio URL'));
+                return;
+            }
+            this.sound = new Howl({
+                src: [this.song.url],
+                html5: true, // Required for CORS streams/redirects
+                format: this.song.source === 'soundcloud' || (typeof this.song.url === 'string' && this.song.url.includes('soundcloud'))
+                    ? ['mp3']
+                    : ['mp4', 'mp3', 'aac', 'm4a', 'wav'],
+                volume: this.volumeLevel,
+                preload: true, // Start loading immediately
+                onload: () => {
+                    this.loaded = true;
+                    const duration = this.sound?.duration() || 0;
+                    this.callbacks.onLoad(duration);
+                    // If a seek was requested before loading finished, apply it now
+                    if (this.pendingSeek !== null) {
+                        const seekTo = this.pendingSeek;
+                        this.pendingSeek = null;
+                        this.sound?.seek(seekTo);
+                    }
+                },
+                onplay: this.callbacks.onPlay,
+                onpause: this.callbacks.onPause,
+                onend: () => {
+                    // CRITICAL: Keep MediaSession in 'playing' state during the
+                    // song transition. If we let it drop to 'paused'/'none',
+                    // mobile browsers will kill the tab before nextSong() fires.
+                    if ('mediaSession' in navigator) {
+                        navigator.mediaSession.playbackState = 'playing';
+                    }
+                    this.callbacks.onEnd();
+                },
+                onloaderror: (id, err) => {
+                    console.error("Howler Load Error:", err, "URL:", this.song.url);
+                    this.loaded = false;
+                    this.callbacks.onLoadError(id, err);
+                },
+                onplayerror: (id, err) => {
+                    console.warn("Howler Play Error (Autoplay block):", err);
+                    this.callbacks.onPlayError(id, err);
+                    if (this.sound) {
+                        this.sound.once('unlock', () => {
+                            this.sound?.play();
+                        });
+                    }
+                },
+            });
+        } else {
+            // Background lockscreen hack for YouTube
+            this.sound = new Howl({
+                src: [SILENT_AUDIO_URI],
+                html5: true,
+                volume: 0.1, 
+                loop: true,
+                onplay: this.callbacks.onPlay,
+                onpause: this.callbacks.onPause,
+                onend: () => {
+                    // Loop should prevent this, but just in case
+                    this.sound?.play();
                 }
-            },
-        });
+            });
+            // Immediately mark as loaded for silent loop
+            this.loaded = true;
+            this.callbacks.onLoad(0);
+        }
     }
 
     play() {

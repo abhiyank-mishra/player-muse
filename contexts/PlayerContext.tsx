@@ -3,17 +3,47 @@
 import React, { createContext, useContext, useState, useRef, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { Song, PlayerState } from '@/lib/types';
 import { useAuth } from './AuthContext';
+import { useToast } from './ToastContext';
 import { recordSongPlay } from '@/lib/ranking';
 import { incrementGuestPlayCount, getGuestPlayCount, updateWeights, recordSkipPreference } from '@/lib/preferences';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import '@/core/player/YouTubePlayerPatch';
 import { MediaSessionBridge } from '@/core/player/MediaSessionBridge';
 import { QueueManager } from '@/core/player/QueueManager';
 import { PlaybackEngine, BackgroundKeepAlive, AudioPreloader } from '@/core/player/PlaybackEngine';
 import { savePlayerState, loadPlayerState, clearPlayerState } from '@/core/player/PlayerStateStore';
 import { requestWakeLock, releasePlayerWakeLock } from '@/core/player/WakeLockManager';
 
+const ReactPlayer = dynamic(() => import('react-player'), { ssr: false }) as any;
 const DEBUG_IOS = true; // Temporary flag for debugging playback issues
+
+export const formatYouTubeUrl = (urlOrSong?: string | { id?: string; url?: string } | null): string => {
+  if (!urlOrSong) return '';
+  let target = '';
+  if (typeof urlOrSong === 'object') {
+    if (urlOrSong.id && urlOrSong.id.startsWith('yt_')) {
+      return `https://www.youtube.com/watch?v=${urlOrSong.id.replace(/^yt_/, '')}`;
+    }
+    target = urlOrSong.url || urlOrSong.id || '';
+  } else {
+    target = urlOrSong;
+  }
+  const trimmed = target.trim();
+  if (!trimmed) return '';
+  if (trimmed.includes('/api/music/stream')) {
+    try {
+      const urlObj = new URL(trimmed, 'http://dummy.com');
+      const id = urlObj.searchParams.get('id');
+      if (id) return `https://www.youtube.com/watch?v=${id.replace(/^yt_/, '')}`;
+    } catch {}
+  }
+  if (trimmed.startsWith('yt_')) {
+    return `https://www.youtube.com/watch?v=${trimmed.replace(/^yt_/, '')}`;
+  }
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+  return `https://www.youtube.com/watch?v=${trimmed}`;
+};
 
 interface PlayerContextType extends PlayerState {
   history: Song[];
@@ -48,6 +78,13 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   const { user, loading: authLoading, setLoginModalOpen } = useAuth();
+  const { showToast } = useToast();
+  const recoveryRef = useRef<{
+    songId: string;
+    attempt: number;
+    triedUrls: Set<string>;
+    isUserInitiated: boolean;
+  }>({ songId: '', attempt: 0, triedUrls: new Set(), isUserInitiated: false });
   const router = useRouter();
   const [isFullPlayerOpen, setFullPlayerOpen] = useState(false);
   const [isDesktopFullScreen, setDesktopFullScreen] = useState(false);
@@ -69,6 +106,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   });
 
   const engineRef = useRef<PlaybackEngine | null>(null);
+  const playerRef = useRef<any>(null); // ReactPlayer ref
   const rafRef = useRef<number | null>(null);
   const repeatModeRef = useRef(state.repeatMode);
   const nextSongRef = useRef<(() => void) | undefined>(undefined);
@@ -158,14 +196,43 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const s = stateRef.current;
-        // If we think we're playing but the engine is stalled, try to recover
-        if (s.isPlaying && s.currentSong && engineRef.current) {
+        if (!s.isPlaying || !s.currentSong) return;
+
+        // For YouTube tracks: NEVER use engineRef.current (which is a silent audio loop)
+        if (s.currentSong.source === 'youtube') {
+          if (playerRef.current) {
+            try {
+              const p = playerRef.current;
+              const ytDur = typeof p.duration === 'number' ? p.duration : (p.getDuration ? p.getDuration() : 0);
+              const ytPos = typeof p.currentTime === 'number' ? p.currentTime : (p.getCurrentTime ? p.getCurrentTime() : 0);
+              if (ytDur > 10 && typeof ytPos === 'number' && ytPos >= ytDur - 0.2) {
+                console.log('[Player] Recovery: YouTube song ended while backgrounded, advancing...');
+                if (nextSongRef.current) nextSongRef.current();
+              }
+            } catch (e) {
+              // Ignore
+            }
+          }
+          return;
+        }
+
+        // For non-YouTube tracks (Howler / HTML5 Audio)
+        if (engineRef.current) {
           try {
-            const currentPos = engineRef.current.seek() as number;
-            const dur = engineRef.current.getInstance()?.duration() || s.duration || 0;
-            // If position is at/past end and song should still be playing,
-            // the onEnd likely didn't fire while backgrounded
-            if (dur > 0 && currentPos >= dur - 0.5) {
+            const howl = engineRef.current.getInstance();
+            if (!howl) return;
+
+            // If audio is actively playing, NEVER interrupt playback!
+            if (howl.playing()) return;
+
+            const audioNode = (howl as any)?._sounds?.[0]?._node as HTMLAudioElement | undefined;
+            const isAudioEnded = audioNode ? audioNode.ended : false;
+            const dur = typeof howl.duration === 'function' ? howl.duration() : (s.duration || 0);
+            const currentPos = typeof engineRef.current.seek() === 'number' ? (engineRef.current.seek() as number) : 0;
+
+            // Only advance if the audio element literally reported ended,
+            // or if the song duration is valid (>10s) and position reached EOF
+            if (isAudioEnded || (dur > 10 && currentPos >= dur)) {
               console.log('[Player] Recovery: song ended while backgrounded, advancing...');
               if (nextSongRef.current) nextSongRef.current();
             }
@@ -188,7 +255,15 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         let currentSeek: number | null = null;
         let activeDuration = 0;
 
-        if (engineRef.current) {
+        if (currentSong?.source === 'youtube') {
+          if (playerRef.current) {
+            const p = playerRef.current;
+            const time = typeof p.currentTime === 'number' ? p.currentTime : (p.getCurrentTime ? p.getCurrentTime() : null);
+            if (typeof time === 'number' && !isNaN(time)) currentSeek = time;
+            const dur = typeof p.duration === 'number' && !isNaN(p.duration) ? p.duration : (p.getDuration ? p.getDuration() : (stateRef.current.duration || currentSong.duration || 0));
+            activeDuration = dur;
+          }
+        } else if (engineRef.current) {
           currentSeek = engineRef.current.seek() as number;
           activeDuration = engineRef.current.getInstance()?.duration() || stateRef.current.duration || currentSong?.duration || 0;
         }
@@ -217,14 +292,43 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
 
   const seekTo = useCallback((seconds: number) => {
     const current = stateRef.current;
-    if (engineRef.current) {
+    if (engineRef.current && current.currentSong?.source !== 'youtube') {
+      // PlaybackEngine now safely queues seeks on unloaded audio
       engineRef.current.seek(seconds);
+    }
+    if (current.currentSong?.source === 'youtube' && playerRef.current) {
+      const p = playerRef.current;
+      try {
+        if (typeof p.seekTo === 'function') {
+          p.seekTo(seconds, true);
+        } else if ('currentTime' in p) {
+          p.currentTime = seconds;
+        } else if (p.api && typeof p.api.seekTo === 'function') {
+          p.api.seekTo(seconds, true);
+        } else if (p.getInternalPlayer && typeof p.getInternalPlayer === 'function') {
+          const internal = p.getInternalPlayer();
+          if (internal && typeof internal.seekTo === 'function') {
+            internal.seekTo(seconds, true);
+          } else if (internal && 'currentTime' in internal) {
+            internal.currentTime = seconds;
+          }
+        }
+      } catch (err) {
+        console.warn('[Player] YouTube seek failed:', err);
+      }
     }
     setState(prev => ({ ...prev, seek: seconds }));
     MediaSessionBridge.updatePositionState(current.duration || 0, 1, seconds);
   }, []);  // No state dependency needed — reads via stateRef
 
   const getCurrentTime = useCallback(() => {
+    const current = stateRef.current;
+    if (current.currentSong?.source === 'youtube' && playerRef.current) {
+      const p = playerRef.current;
+      const pos = typeof p.currentTime === 'number' ? p.currentTime : (p.getCurrentTime ? p.getCurrentTime() : null);
+      if (typeof pos === 'number' && !isNaN(pos)) return pos;
+      return current.seek || 0;
+    }
     if (engineRef.current) {
       try {
         const pos = engineRef.current.seek();
@@ -233,7 +337,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         return 0;
       }
     }
-    return stateRef.current.seek || 0;
+    return 0;
   }, []);
 
   const playSong = useCallback((song: Song, sourceContext?: string) => {
@@ -251,14 +355,38 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         incrementGuestPlayCount();
     }
 
-    const isUsable = song.url && song.url.length > 0 && !song.url.includes('undefined');
+    if (song.source === 'youtube') {
+        song = { ...song, url: formatYouTubeUrl(song) };
+    }
+
+    const isRestore = sourceContext === 'restore';
+    const isFromQueue = sourceContext === 'queue';
+    const isNext = sourceContext === 'next';
+    const isColab = sourceContext === 'colab';
+    const isRetry = sourceContext === 'retry';
+    const isStandalone = !isRestore && !isFromQueue && !isNext && !isColab && !isRetry;
+    const isUserInitiated = isStandalone || isFromQueue;
+
+    // Track recovery attempts per song
+    if (!isRetry && recoveryRef.current.songId !== song.id) {
+        recoveryRef.current = {
+            songId: song.id,
+            attempt: 0,
+            triedUrls: new Set(song.url ? [song.url] : []),
+            isUserInitiated
+        };
+    } else if (song.url) {
+        recoveryRef.current.triedUrls.add(song.url);
+    }
+
+    const isUsable = Boolean(song.url && typeof song.url === 'string' && song.url.trim().length > 0 && !song.url.includes('undefined'));
     
     // ─── Offline mode: resolve blob URL from IndexedDB ───
     const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
     if (isOffline || song.url?.startsWith('blob:')) {
         // If already a blob URL, proceed normally; otherwise resolve from IndexedDB
         if (!song.url?.startsWith('blob:')) {
-            setState(prev => ({ ...prev, isBuffering: true }));
+            setState(prev => ({ ...prev, isBuffering: true, currentSong: song }));
             import('@/lib/offlineStorage').then(async ({ getDownloadedSong }) => {
                 const downloaded = await getDownloadedSong(song.id);
                 if (downloaded && downloaded.blob && downloaded.blob.size > 0) {
@@ -268,8 +396,11 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
                 } else {
                     console.warn('[Player] Offline — song not found in IndexedDB:', song.name);
                     setState(prev => ({ ...prev, isBuffering: false, isPlaying: false }));
-                    // Try next song
-                    setTimeout(() => { if (nextSongRef.current) nextSongRef.current(); }, 300);
+                    if (recoveryRef.current.isUserInitiated) {
+                        showToast(`Offline: "${song.name}" is not downloaded.`, 'error');
+                    } else {
+                        setTimeout(() => { if (nextSongRef.current) nextSongRef.current(); }, 300);
+                    }
                 }
             }).catch(e => {
                 console.error('[Player] Offline blob resolution failed:', e);
@@ -279,31 +410,60 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         }
     }
     
+    // ─── Pre-flight resolution if audio URL is missing ───
     if (!isUsable && song.source !== 'youtube') {
-        setState(prev => ({ ...prev, isBuffering: true }));
-        fetch(`/api/music/fallback?query=${encodeURIComponent(song.name + ' ' + song.artist)}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.url) playSong({ ...song, ...data }, sourceContext);
-                else setState(prev => ({ ...prev, isBuffering: false }));
-            })
-            .catch(e => {
-                console.error("Fallback fetch error", e);
-                setState(prev => ({ ...prev, isBuffering: false }));
-            });
+        setState(prev => ({ ...prev, isBuffering: true, currentSong: song }));
+        console.log('[Player] Song has no usable URL, resolving before playback:', song.name, song.id);
+
+        const handleUnresolvable = () => {
+            console.warn('[Player] Failed to resolve URL for:', song.name);
+            setState(prev => ({ ...prev, isBuffering: false, isPlaying: false }));
+            if (recoveryRef.current.isUserInitiated) {
+                showToast(`Unable to play "${song.name}". Stream unavailable.`, 'error');
+            } else {
+                setTimeout(() => { if (nextSongRef.current) nextSongRef.current(); }, 200);
+            }
+        };
+
+        const tryFallbackSearch = () => {
+            fetch(`/api/music/fallback?query=${encodeURIComponent(song.name + ' ' + (song.artist || ''))}&title=${encodeURIComponent(song.name)}`)
+                .then(res => res.ok ? res.json() : null)
+                .then(data => {
+                    if (data?.url) {
+                        console.log('[Player] Got URL from fallback search for:', song.name);
+                        playSong({ ...song, ...data }, isRetry ? 'retry' : sourceContext);
+                    } else {
+                        handleUnresolvable();
+                    }
+                })
+                .catch(() => handleUnresolvable());
+        };
+
+        // If numeric ID, first try direct song details API
+        const isNumericId = /^\d+$/.test(song.id);
+        if (isNumericId) {
+            fetch(`/api/music/song/${song.id}`)
+                .then(res => res.ok ? res.json() : null)
+                .then(data => {
+                    if (data?.url) {
+                        console.log('[Player] Got URL from song details API for:', song.name);
+                        playSong({ ...song, ...data }, isRetry ? 'retry' : sourceContext);
+                    } else {
+                        tryFallbackSearch();
+                    }
+                })
+                .catch(() => tryFallbackSearch());
+        } else {
+            tryFallbackSearch();
+        }
         return; 
     }
 
     setState(prev => {
-        // When restoring from a persisted session, skip radio queue generation
-        // (the queue is already restored) and skip history push (we're resuming,
-        // not switching songs).
-        const isRestore = sourceContext === 'restore';
-        const isFromQueue = sourceContext === 'queue' || sourceContext === 'next';
-        const isColab = sourceContext === 'colab';
-        const isStandalone = !isRestore && !isFromQueue && !isColab;
+        // When restoring or retrying, skip radio queue generation
+        const shouldGenerateRadio = isStandalone && !isRetry;
 
-        if (isStandalone) {
+        if (shouldGenerateRadio) {
              import('@/core/player/RadioQueueGenerator').then(mod => {
                  mod.RadioQueueGenerator.generateQueue(song).then(radioQueue => {
                      setState(current => {
@@ -333,7 +493,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
             queue: isStandalone ? [song] : prev.queue,
             currentIndex: isStandalone ? 0 : (sourceContext === 'next' ? prev.currentIndex : (existingIndex !== -1 ? existingIndex : prev.currentIndex)),
             manualQueue: isStandalone ? [] : prev.manualQueue,
-            history: isRestore ? prev.history : QueueManager.pushHistory(prev.history, prev.currentSong)
+            history: (isRestore || isRetry) ? prev.history : QueueManager.pushHistory(prev.history, prev.currentSong)
         };
     });
 
@@ -348,10 +508,12 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     // Instantiate core PlaybackEngine decoupled logic
     engineRef.current = new PlaybackEngine(song, state.volume, {
         onLoad: (duration) => {
-            setState(prev => ({ ...prev, isBuffering: false, duration }));
+            // Success! Reset recovery tracker
+            recoveryRef.current = { songId: '', attempt: 0, triedUrls: new Set(), isUserInitiated: false };
+            setState(prev => ({ ...prev, isBuffering: false, duration: duration || song.duration || 0 }));
             // Update MediaSession with actual loaded duration so Android notification progress bar works
             const currentSeek = engineRef.current?.seek() as number || 0;
-            MediaSessionBridge.updatePositionState(duration, 1, currentSeek);
+            MediaSessionBridge.updatePositionState(duration || song.duration || 0, 1, currentSeek);
         },
         onPlay: () => {
              setState(prev => ({ ...prev, isPlaying: true, isBuffering: false }));
@@ -380,9 +542,6 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
                 engineRef.current?.play();
             } else {
                 // Use setTimeout(0) to break out of the Howler callback stack.
-                // On locked phones the Howler callback can run in a restricted
-                // context; deferring with setTimeout gives the browser a chance
-                // to schedule the next audio play in a fresh microtask.
                 setTimeout(() => {
                     if (nextSongRef.current) {
                         nextSongRef.current();
@@ -392,18 +551,100 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
                 }, 0);
             }
         },
-        onLoadError: (id, err) => {
-            console.error("Load Error", err);
-            if (DEBUG_IOS) console.log("[Player] Details:", { id, err });
-            
-            // For load failure, auto-skip to next song after brief delay
-            console.log("[Player] Load failed for:", song.name, "— auto-skipping to next song");
+        onLoadError: async (id, err) => {
+            console.error(`[Player] Load Error for "${song.name}" (attempt ${recoveryRef.current.attempt}):`, err);
+            const currentRecovery = recoveryRef.current;
+            currentRecovery.attempt += 1;
+            const attempt = currentRecovery.attempt;
+
+            // Tier 1: Bitrate degradation on direct CDN (320 -> 160 -> 96 kbps)
+            if (song.url && song.url.includes('saavncdn.com')) {
+                if (song.url.includes('_320.mp4')) {
+                    const alt160 = song.url.replace('_320.mp4', '_160.mp4');
+                    if (!currentRecovery.triedUrls.has(alt160)) {
+                        currentRecovery.triedUrls.add(alt160);
+                        console.log('[Player] Recovery Tier 1: Trying 160kbps CDN URL for:', song.name);
+                        playSong({ ...song, url: alt160 }, 'retry');
+                        return;
+                    }
+                }
+                if (song.url.includes('_320.mp4') || song.url.includes('_160.mp4')) {
+                    const alt96 = song.url.replace(/_(320|160)\.mp4/, '_96.mp4');
+                    if (!currentRecovery.triedUrls.has(alt96)) {
+                        currentRecovery.triedUrls.add(alt96);
+                        console.log('[Player] Recovery Tier 1: Trying 96kbps CDN URL for:', song.name);
+                        playSong({ ...song, url: alt96 }, 'retry');
+                        return;
+                    }
+                }
+            }
+
+            // Tier 2: Muse Streaming Proxy (handles iOS Range 206, CORS, and auto-bitrate fallback)
+            if (song.url && !song.url.includes('/api/music/proxy') && (song.url.startsWith('http://') || song.url.startsWith('https://'))) {
+                const proxyUrl = `/api/music/proxy?url=${encodeURIComponent(song.url)}`;
+                if (!currentRecovery.triedUrls.has(proxyUrl)) {
+                    currentRecovery.triedUrls.add(proxyUrl);
+                    console.log('[Player] Recovery Tier 2: Trying Muse Streaming Proxy for:', song.name);
+                    playSong({ ...song, url: proxyUrl }, 'retry');
+                    return;
+                }
+            }
+
+            // Tier 3: Re-fetch fresh song details via JioSaavn API (if numeric ID)
+            const isNumericId = /^\d+$/.test(song.id);
+            if (isNumericId && attempt <= 3) {
+                console.log('[Player] Recovery Tier 3: Re-fetching track details for:', song.name);
+                try {
+                    const res = await fetch(`/api/music/song/${song.id}`);
+                    if (res.ok) {
+                        const freshData = await res.json();
+                        if (freshData?.url && !currentRecovery.triedUrls.has(freshData.url)) {
+                            currentRecovery.triedUrls.add(freshData.url);
+                            playSong({ ...song, ...freshData }, 'retry');
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[Player] Recovery Tier 3 re-fetch failed:', e);
+                }
+            }
+
+            // Tier 4: Cross-platform fallback search (verified match)
+            if (attempt <= 4) {
+                console.log('[Player] Recovery Tier 4: Fallback search for:', song.name);
+                try {
+                    const res = await fetch(`/api/music/fallback?query=${encodeURIComponent(song.name + ' ' + (song.artist || ''))}&title=${encodeURIComponent(song.name)}`);
+                    if (res.ok) {
+                        const fallbackData = await res.json();
+                        if (fallbackData?.url && !currentRecovery.triedUrls.has(fallbackData.url)) {
+                            currentRecovery.triedUrls.add(fallbackData.url);
+                            playSong({ ...song, url: fallbackData.url, source: fallbackData.source || song.source }, 'retry');
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[Player] Recovery Tier 4 fallback search failed:', e);
+                }
+            }
+
+            // Tier 5: All recovery attempts failed
+            console.error('[Player] All playback recovery options exhausted for:', song.name);
             setState(prev => ({ ...prev, isBuffering: false, isPlaying: false }));
-            setTimeout(() => {
-                if (nextSongRef.current) nextSongRef.current();
-            }, 200);
+
+            if (currentRecovery.isUserInitiated) {
+                // NEVER jump to a random next song when user explicitly chose this song!
+                showToast(`Could not play "${song.name}". Stream unavailable.`, 'error');
+            } else {
+                // Background queue playback: advance to next song after delay
+                setTimeout(() => {
+                    if (nextSongRef.current) nextSongRef.current();
+                }, 200);
+            }
         },
-        onPlayError: (id, err) => console.warn("Playback wait (autoplay blocked):", err)
+        onPlayError: (id, err) => {
+            console.warn("Playback wait (autoplay blocked):", err);
+            setState(prev => ({ ...prev, isBuffering: false }));
+        }
     });
     
     engineRef.current.play();
@@ -411,8 +652,22 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     // Instantiate core MediaSession bindings decoupled logic
     MediaSessionBridge.updateMetadata(song);
     MediaSessionBridge.setActionHandlers({
-        onPlay: () => engineRef.current?.play() || setState(prev => ({ ...prev, isPlaying: true })),
-        onPause: () => engineRef.current?.pause() || setState(prev => ({ ...prev, isPlaying: false })),
+        onPlay: () => {
+            if (stateRef.current.currentSong?.source === 'youtube') {
+                setState(prev => ({ ...prev, isPlaying: true }));
+                engineRef.current?.play();
+            } else {
+                engineRef.current?.play() || setState(prev => ({ ...prev, isPlaying: true }));
+            }
+        },
+        onPause: () => {
+            if (stateRef.current.currentSong?.source === 'youtube') {
+                setState(prev => ({ ...prev, isPlaying: false }));
+                engineRef.current?.pause();
+            } else {
+                engineRef.current?.pause() || setState(prev => ({ ...prev, isPlaying: false }));
+            }
+        },
         onNextTrack: () => { if (nextSongRef.current) nextSongRef.current() },
         onPrevTrack: () => { if (prevSongRef.current) prevSongRef.current() },
         onSeekTo: seekTo
@@ -420,7 +675,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     MediaSessionBridge.setPlaybackState(true);
 
     if (user) recordSongPlay(user.uid, song);
-  }, [user, state.volume, seekTo]);
+  }, [user, authLoading, setLoginModalOpen, state.volume, seekTo, showToast]);
 
   // ─── Restore persisted state on mount ───
   useEffect(() => {
@@ -433,9 +688,16 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     console.log('[Player] Restoring session:', persisted.currentSong.name, 'at', Math.round(persisted.seek), 's');
 
     // Restore queue/state first so playSong sees the correct queue
+    const sanitizedQueue = (persisted.queue || []).map(s => {
+      if (s?.source === 'youtube') {
+        return { ...s, url: formatYouTubeUrl(s) };
+      }
+      return s;
+    });
+
     setState(prev => ({
       ...prev,
-      queue: persisted.queue,
+      queue: sanitizedQueue,
       manualQueue: persisted.manualQueue,
       currentIndex: persisted.currentIndex,
       volume: persisted.volume,
@@ -448,7 +710,12 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     const resumeTimer = setTimeout(async () => {
       if (!persisted.currentSong) return;
 
-      const songToPlay = persisted.currentSong;
+      let songToPlay = persisted.currentSong;
+
+      if (songToPlay.source === 'youtube') {
+        songToPlay = { ...songToPlay, url: formatYouTubeUrl(songToPlay) };
+      }
+
       playSong(songToPlay, 'restore');
       // Seek to saved position after a brief loading delay
       const seekTimer = setTimeout(() => {
@@ -463,26 +730,37 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   }, []); // intentionally empty — run once on mount
 
   const togglePlay = useCallback(() => {
-    if (!engineRef.current) return;
+    if (!user && !authLoading && getGuestPlayCount() >= 5) {
+      setLoginModalOpen(true);
+      return;
+    }
     const s = stateRef.current;
-    if (s.isPlaying) engineRef.current.pause();
-    else engineRef.current.play();
-    MediaSessionBridge.setPlaybackState(!s.isPlaying);
-  }, []);
+    if (s.isPlaying) {
+      if (engineRef.current) engineRef.current.pause();
+      setState(prev => ({ ...prev, isPlaying: false }));
+      MediaSessionBridge.setPlaybackState(false);
+    } else {
+      if (engineRef.current) engineRef.current.play();
+      setState(prev => ({ ...prev, isPlaying: true }));
+      MediaSessionBridge.setPlaybackState(true);
+    }
+  }, [user, authLoading, setLoginModalOpen]);
 
   const pause = useCallback(() => {
-    if (!engineRef.current) return;
-    engineRef.current.pause();
+    if (engineRef.current) engineRef.current.pause();
     setState(prev => ({ ...prev, isPlaying: false }));
     MediaSessionBridge.setPlaybackState(false);
   }, []);
 
   const resume = useCallback(() => {
-    if (!engineRef.current) return;
-    engineRef.current.play();
+    if (!user && !authLoading && getGuestPlayCount() >= 5) {
+      setLoginModalOpen(true);
+      return;
+    }
+    if (engineRef.current) engineRef.current.play();
     setState(prev => ({ ...prev, isPlaying: true }));
     MediaSessionBridge.setPlaybackState(true);
-  }, []);
+  }, [user, authLoading, setLoginModalOpen]);
 
   const nextSong = useCallback(async () => {
     // If an external mode (e.g. Colab room) registered an override, delegate to it
@@ -641,7 +919,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
         console.warn('[Player] nextSong async fallback failed:', e);
         setState(prev => ({ ...prev, isPlaying: false }));
     }
-  }, [playSong]);  // Removed `state` dependency — we read from stateRef instead
+  }, [playSong]);
 
   const prevSong = useCallback(() => {
      const s = stateRef.current;
@@ -735,7 +1013,52 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     setState(prev => ({ ...prev, volume: vol }));
   }, []);
 
+  // ReactPlayer Callbacks
+  const handlePlayerProgress = (progress: { playedSeconds: number }) => {
+      if (state.currentSong?.source === 'youtube') {
+          setState(prev => ({ ...prev, seek: progress.playedSeconds }));
+          const currentSong = state.currentSong;
+          if (currentSong && recordedWeightSongIdRef.current !== currentSong.id) {
+              const dur = state.duration || currentSong.duration || 0;
+              if (progress.playedSeconds >= 30 || (dur > 0 && progress.playedSeconds / dur >= 0.5)) {
+                  recordedWeightSongIdRef.current = currentSong.id;
+                  updateWeights(currentSong, progress.playedSeconds, dur);
+              }
+          }
+      }
+  };
 
+  const handlePlayerDuration = (duration: number) => {
+      if (state.currentSong?.source === 'youtube') setState(prev => ({ ...prev, duration }));
+  };
+
+  const handlePlayerEnded = () => {
+       const currentSong = state.currentSong;
+       if (currentSong && recordedWeightSongIdRef.current !== currentSong.id) {
+           recordedWeightSongIdRef.current = currentSong.id;
+           const dur = state.duration || currentSong.duration || 0;
+           updateWeights(currentSong, dur, dur);
+       }
+       if (repeatModeRef.current === 'one') {
+          if (playerRef.current) {
+            const p = playerRef.current;
+            try {
+              if (typeof p.seekTo === 'function') {
+                p.seekTo(0, true);
+              } else if ('currentTime' in p) {
+                p.currentTime = 0;
+              } else if (p.api && typeof p.api.seekTo === 'function') {
+                p.api.seekTo(0, true);
+              }
+            } catch (err) {
+              console.warn('[Player] YouTube repeat seek failed:', err);
+            }
+            setState(prev => ({ ...prev, isPlaying: true }));
+          }
+       } else {
+          if (nextSongRef.current) nextSongRef.current();
+       }
+  };
 
   const toggleShuffle = useCallback(() => setState(prev => ({ ...prev, isShuffle: !prev.isShuffle })), []);
   const toggleRepeat = useCallback(() => {
@@ -812,6 +1135,47 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
   return (
     <PlayerContext.Provider value={contextValue}>
       {children}
+      <div style={{ position: 'fixed', bottom: 0, right: 0, width: '1px', height: '1px', opacity: 0.01, pointerEvents: 'none', zIndex: -1 }}>
+        {state.currentSong?.source === 'youtube' && (() => {
+            const ytUrl = formatYouTubeUrl(state.currentSong);
+            if (!ytUrl) return null;
+            return (
+              // @ts-ignore
+              <ReactPlayer
+                  key={state.currentSong.id}
+                  ref={playerRef}
+                  src={ytUrl}
+                  playing={state.isPlaying}
+                  volume={state.volume}
+                  onPlay={() => setState(prev => ({ ...prev, isPlaying: true, isBuffering: false }))}
+                  onPlaying={() => setState(prev => ({ ...prev, isPlaying: true, isBuffering: false }))}
+                  onWaiting={() => setState(prev => ({ ...prev, isBuffering: true }))}
+                  onPause={() => setState(prev => ({ ...prev, isPlaying: false }))}
+                  onTimeUpdate={(e: any) => {
+                      const currentSec = e?.currentTarget?.currentTime ?? e?.target?.currentTime ?? playerRef.current?.currentTime;
+                      if (typeof currentSec === 'number' && !isNaN(currentSec)) {
+                          handlePlayerProgress({ playedSeconds: currentSec });
+                      }
+                  }}
+                  onDurationChange={(e: any) => {
+                      const dur = e?.target?.duration ?? e?.currentTarget?.duration ?? (playerRef.current?.getDuration ? playerRef.current.getDuration() : playerRef.current?.duration);
+                      if (dur && typeof dur === 'number' && !isNaN(dur)) handlePlayerDuration(dur);
+                  }}
+                  onReady={() => {
+                      const dur = playerRef.current?.duration ?? (playerRef.current?.getDuration ? playerRef.current.getDuration() : 0);
+                      if (dur && typeof dur === 'number' && !isNaN(dur)) handlePlayerDuration(dur);
+                      setState(prev => ({ ...prev, isBuffering: false }));
+                  }}
+                  onEnded={handlePlayerEnded}
+                  onError={(err: any) => {
+                      console.warn('[Player] YouTube playback error:', err);
+                      setState(prev => ({ ...prev, isBuffering: false }));
+                  }}
+                  config={{ youtube: { playerVars: { playsinline: 1 } } }}
+              />
+            );
+        })()}
+      </div>
     </PlayerContext.Provider>
   );
 };

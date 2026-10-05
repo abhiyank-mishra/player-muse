@@ -23,14 +23,11 @@ export default function SongCard({ song, onPlay, onLikeToggle }: SongCardProps) 
   const { user, isAdmin, isPro, login } = useAuth();
   const [isLiked, setIsLiked] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
-  const [showPlaylists, setShowPlaylists] = useState(false);
-  const [playlists, setPlaylists] = useState<any[]>([]);
-  const [addingToId, setAddingToId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(-1);
-  const { setProModalOpen } = useUI();
+  const { setProModalOpen, openAddToPlaylist } = useUI();
   
   const isCurrent = currentSong?.id === song.id;
   const isThisPlaying = isCurrent && isPlaying;
@@ -146,37 +143,13 @@ export default function SongCard({ song, onPlay, onLikeToggle }: SongCardProps) 
     playNext(song);
   };
 
-  const handlePlaylistClick = async (e: React.MouseEvent) => {
+  const handlePlaylistClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user) {
       login();
       return;
     }
-    setShowPlaylists(!showPlaylists);
-    if (!showPlaylists) {
-      const data = await getUserPlaylists(user.uid, isPro);
-      setPlaylists(data);
-    }
-  };
-
-  const handleAddToPlaylist = async (playlistId: string) => {
-    setAddingToId(playlistId);
-    try {
-      // Check if playlist already has 50 songs
-      const playlist = playlists.find(p => p.id === playlistId);
-      if (playlist && playlist.songs && playlist.songs.length >= 50) {
-        setErrorMsg('Playlist is full (Max 50 songs)');
-        setTimeout(() => setErrorMsg(''), 3000);
-        setAddingToId(null);
-        return;
-      }
-      await addToPlaylist(user!.uid, playlistId, song);
-      setShowPlaylists(false);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setAddingToId(null);
-    }
+    openAddToPlaylist(song);
   };
 
   const onDragEnd = async (_: any, info: any) => {
@@ -227,8 +200,6 @@ export default function SongCard({ song, onPlay, onLikeToggle }: SongCardProps) 
           decoding="async"
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
         />
-
-
 
         {/* Like Button on Image - Top Right Corner ONLY, No Circular BG */}
         <button 
@@ -283,75 +254,6 @@ export default function SongCard({ song, onPlay, onLikeToggle }: SongCardProps) 
         </div>
       </div>
 
-      {/* Playlist Popover */}
-      <AnimatePresence>
-        {showPlaylists && (
-          <>
-            <div 
-              className="fixed inset-0 z-40" 
-              onClick={(e) => { e.stopPropagation(); setShowPlaylists(false); }} 
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 6 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 6 }}
-              className="absolute bottom-10 right-0 min-w-[13rem] bg-[#18181b]/98 backdrop-blur-xl border border-white/15 p-2.5 rounded-xl shadow-2xl z-50 flex flex-col gap-1"
-              style={{ maxWidth: '90vw' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 py-1">Save to Playlist</p>
-              <div className="max-h-40 overflow-y-auto flex flex-col gap-0.5">
-                {playlists.length > 0 ? (
-                  playlists.map(p => (
-                    <button 
-                      key={p.id}
-                      disabled={addingToId === p.id}
-                      onClick={(e) => { e.stopPropagation(); handleAddToPlaylist(p.id); }}
-                      className="flex items-center justify-between w-full p-2 rounded-lg text-left text-xs font-medium hover:bg-white/10 transition-all text-gray-200 hover:text-white disabled:opacity-50"
-                    >
-                      <span className="truncate">{p.name}</span>
-                      {addingToId === p.id ? <Spinner className="w-3 h-3" /> : <PlusCircle className="w-3 h-3 text-purple-400 shrink-0" />}
-                    </button>
-                  ))
-                ) : (
-                  <p className="text-[10px] text-gray-500 italic px-2 py-3 text-center">No playlists found. <br/> Create one in Sidebar!</p>
-                )}
-              </div>
-              
-              {/* Quick actions: Play Next, Download, Admin Pin */}
-              <div className="pt-1.5 mt-1 border-t border-white/10 flex items-center justify-between gap-1 px-1">
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handlePlayNext(e); setShowPlaylists(false); }}
-                  className="flex items-center gap-1 text-[10px] text-zinc-300 hover:text-white py-1 px-1.5 rounded hover:bg-white/10 transition-colors"
-                  title="Play Next in Queue"
-                >
-                  <ListPlus className="w-3 h-3 text-purple-400" /> Next
-                </button>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleDownload(e); }}
-                  disabled={downloading || isDownloaded}
-                  className="flex items-center gap-1 text-[10px] text-zinc-300 hover:text-white py-1 px-1.5 rounded hover:bg-white/10 transition-colors disabled:opacity-50"
-                  title={isDownloaded ? "Already Downloaded" : "Download Song"}
-                >
-                  {isDownloaded ? <Check className="w-3 h-3 text-green-400" /> : <Download className="w-3 h-3 text-purple-400" />}
-                  {isDownloaded ? 'Saved' : downloading ? `${downloadPercent >= 0 ? downloadPercent + '%' : '...'}` : 'Download'}
-                </button>
-                {isAdmin && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); handlePin(e); }}
-                    className="flex items-center gap-1 text-[10px] text-zinc-300 hover:text-white py-1 px-1.5 rounded hover:bg-white/10 transition-colors"
-                    title="Pin to Global Top"
-                  >
-                    {isPinned ? <Pin className="w-3 h-3 text-purple-400 fill-purple-400" /> : <PinOff className="w-3 h-3 text-zinc-400" />}
-                    Pin
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
       {/* Success Toast */}
       <AnimatePresence>
         {errorMsg && (
@@ -369,4 +271,3 @@ export default function SongCard({ song, onPlay, onLikeToggle }: SongCardProps) 
     </motion.div>
   );
 }
-
