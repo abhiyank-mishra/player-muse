@@ -92,7 +92,7 @@ export async function GET(request: Request) {
           `https://i.ytimg.com/vi/${t.ytVideoId}/hqdefault.jpg`,
           `https://i.ytimg.com/vi/${t.ytVideoId}/hqdefault.jpg`
         ],
-        url: t.ytVideoId,
+        url: `/api/music/stream?id=${encodeURIComponent(t.ytVideoId)}&title=${encodeURIComponent(t.name)}&artist=${encodeURIComponent(t.artist || '')}`,
         duration: 240,
         has_lyrics: 'false',
         language: 'hindi',

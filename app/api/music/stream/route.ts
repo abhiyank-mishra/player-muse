@@ -9,77 +9,11 @@ interface CachedFormat {
   expiresAt: number;
 }
 
-interface YouTubeSession {
-  visitorData?: string;
-  cookie?: string;
-  expiresAt: number;
-}
-
 // In-memory cache for resolved stream URLs (2-hour TTL)
 const audioStreamCache = new Map<string, CachedFormat>();
-let sessionCache: YouTubeSession | null = null;
+const fallbackCdnCache = new Map<string, string>();
 
-async function getYouTubeSession(): Promise<YouTubeSession> {
-  if (sessionCache && Date.now() < sessionCache.expiresAt) {
-    return sessionCache;
-  }
-
-  // 1. Try public visitor_id endpoint
-  try {
-    const res = await fetch('https://www.youtube.com/youtubei/v1/visitor_id', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'WEB',
-            clientVersion: '2.20240101.01.00',
-            hl: 'en',
-            gl: 'IN'
-          }
-        }
-      }),
-      signal: AbortSignal.timeout(3000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const token = data.responseContext?.visitorData;
-      if (token) {
-        sessionCache = { visitorData: token, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
-        return sessionCache;
-      }
-    }
-  } catch (e) {
-    console.warn('[Stream] visitor_id fetch failed:', e);
-  }
-
-  // 2. Fallback: scrape visitorData and cookie from homepage
-  try {
-    const res = await fetch('https://www.youtube.com', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      },
-      signal: AbortSignal.timeout(3500)
-    });
-    const cookie = res.headers.get('set-cookie') || undefined;
-    const html = await res.text();
-    const visitorMatch = html.match(/"VISITOR_DATA":"([^"]+)"/);
-    const visitorData = visitorMatch ? visitorMatch[1] : undefined;
-    if (visitorData || cookie) {
-      sessionCache = { visitorData, cookie, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
-      return sessionCache;
-    }
-  } catch (e) {
-    console.warn('[Stream] Homepage visitor scrape failed:', e);
-  }
-
-  return { expiresAt: Date.now() + 60 * 1000 };
-}
-
-async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): Promise<{ stream?: CachedFormat; debug?: any }> {
+async function resolveYouTubeAudioStream(videoId: string, clientIp = '', bypassCache = false): Promise<{ stream?: CachedFormat; debug?: any }> {
   if (!bypassCache) {
     const cached = audioStreamCache.get(videoId);
     if (cached && Date.now() < cached.expiresAt) {
@@ -88,18 +22,15 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
   }
 
   try {
-    const session = await getYouTubeSession();
-
     const playerBody = {
       videoId: videoId,
       context: {
         client: {
           clientName: 'ANDROID',
-          clientVersion: '20.10.38',
+          clientVersion: '20.20.35',
           androidSdkVersion: 34,
           hl: 'en',
-          gl: 'IN',
-          ...(session.visitorData ? { visitorData: session.visitorData } : {})
+          gl: 'IN'
         }
       },
       playbackContext: {
@@ -113,15 +44,13 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
 
     const reqHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+      'User-Agent': 'com.google.android.youtube/20.20.35 (Linux; U; Android 14) gzip',
       'X-YouTube-Client-Name': '3',
-      'X-YouTube-Client-Version': '20.10.38'
+      'X-YouTube-Client-Version': '20.20.35'
     };
-    if (session.visitorData) {
-      reqHeaders['X-Goog-Visitor-Id'] = session.visitorData;
-    }
-    if (session.cookie) {
-      reqHeaders['Cookie'] = session.cookie;
+    if (clientIp) {
+      reqHeaders['X-Forwarded-For'] = clientIp;
+      reqHeaders['X-Real-IP'] = clientIp;
     }
 
     const res = await fetch('https://www.youtube.com/youtubei/v1/player', {
@@ -161,7 +90,7 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
 
     if (!best || !best.url) {
       console.error(`[Stream] No playable stream format found for ${videoId}`, data.playabilityStatus);
-      return { debug: { playability: data.playabilityStatus, formatsCount: data.streamingData?.formats?.length, adaptiveCount: data.streamingData?.adaptiveFormats?.length, hasStreamingData: !!data.streamingData, sessionActive: !!session.visitorData } };
+      return { debug: { playability: data.playabilityStatus, formatsCount: data.streamingData?.formats?.length, adaptiveCount: data.streamingData?.adaptiveFormats?.length, hasStreamingData: !!data.streamingData } };
     }
 
     const entry: CachedFormat = {
@@ -180,14 +109,16 @@ async function resolveYouTubeAudioStream(videoId: string, bypassCache = false): 
   }
 }
 
-const fallbackCdnCache = new Map<string, string>();
-
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   let id = searchParams.get('id') || '';
   let title = searchParams.get('title') || '';
   let artist = searchParams.get('artist') || '';
   const isDebug = searchParams.get('debug') === '1';
+
+  const clientIp = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+                   req.headers.get('x-real-ip') || 
+                   '';
 
   // Clean video ID
   if (id.startsWith('yt_')) {
@@ -198,19 +129,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Video ID is required' }, { status: 400 });
   }
 
-  // Helper: Try to resolve high-fidelity 320kbps CDN stream when YouTube is blocked by datacenter anti-bot
+  // 1. FAST PATH: If title is present or known, resolve CD-quality 320kbps JioSaavn stream
+  // This takes ~120ms, returns direct 302 to Akamai CDN, and avoids YouTube bot blocks
   const handleFallback = async () => {
     const cachedCdn = fallbackCdnCache.get(id);
     if (cachedCdn) {
       return NextResponse.redirect(cachedCdn, {
         status: 302,
-        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Access-Control-Allow-Origin': '*' }
+        headers: { 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' }
       });
     }
 
     if (!title) {
       try {
-        const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`, { signal: AbortSignal.timeout(3000) });
+        const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${id}&format=json`, { signal: AbortSignal.timeout(2500) });
         if (oembedRes.ok) {
           const oembed = await oembedRes.json();
           title = oembed.title || '';
@@ -225,15 +157,21 @@ export async function GET(req: NextRequest) {
         fallbackCdnCache.set(id, cdnUrl);
         return NextResponse.redirect(cdnUrl, {
           status: 302,
-          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Access-Control-Allow-Origin': '*' }
+          headers: { 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' }
         });
       }
     }
     return null;
   };
 
-  // 1. Try YouTube stream first
-  const result = await resolveYouTubeAudioStream(id);
+  // If title is available, try fast-path CDN match first
+  if (title) {
+    const fastRedirect = await handleFallback();
+    if (fastRedirect) return fastRedirect;
+  }
+
+  // 2. Direct YouTube stream via Android InnerTube
+  const result = await resolveYouTubeAudioStream(id, clientIp);
   let streamInfo = result.stream;
 
   if (isDebug) {
@@ -245,7 +183,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 2. If YouTube stream could not be resolved, try strict fallback
+  // 3. If direct YouTube stream was unavailable and we didn't have title yet, try oEmbed fallback
   if (!streamInfo) {
     const fallbackRedirect = await handleFallback();
     if (fallbackRedirect) return fallbackRedirect;
@@ -269,7 +207,7 @@ export async function GET(req: NextRequest) {
     if (upstreamRes.status === 403) {
       console.warn(`[Stream] Received 403 for ${id}, refreshing stream URL...`);
       audioStreamCache.delete(id);
-      const refreshed = await resolveYouTubeAudioStream(id, true);
+      const refreshed = await resolveYouTubeAudioStream(id, clientIp, true);
       if (refreshed?.stream) {
         streamInfo = refreshed.stream;
         upstreamRes = await fetch(streamInfo.url, {
