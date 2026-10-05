@@ -114,6 +114,7 @@ import PushNotificationInit from '@/components/PushNotificationInit';
 import { ColabProvider } from "@/contexts/ColabContext";
 import FloatingReactionsOverlay from "@/components/colab/FloatingReactionsOverlay";
 import ColabActiveBanner from "@/components/colab/ColabActiveBanner";
+import AddToPlaylistModal from "@/reusable/ui/modals/AddToPlaylistModal";
 
 export default function RootLayout({
   children,
@@ -150,6 +151,7 @@ export default function RootLayout({
                   <NotificationPopup />
                   <DeepLinkInit />
                   <LoginModal />
+                  <AddToPlaylistModal />
                   <ProSubscriptionPopup />
                   <ProExpiryBanner />
                   <PushNotificationInit />

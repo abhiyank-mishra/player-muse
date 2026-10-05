@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, X, CheckCircle, AlertTriangle, Info, Sparkles } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle, Info, Sparkles } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { collection, query, where, orderBy, onSnapshot, updateDoc, doc, limit } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,16 +35,20 @@ export default function NotificationPopup() {
       limit(5)
     );
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const unread: UserNotification[] = [];
-      snapshot.forEach(doc => {
-        unread.push({ id: doc.id, ...doc.data() } as UserNotification);
-      });
-      setNotifications(unread);
-    }, (error) => {
-      // Silently fail — notification is non-critical
-      console.warn('[Notifications] Listener error:', error.message);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snapshot) => {
+        const unread: UserNotification[] = [];
+        snapshot.forEach((d) => {
+          unread.push({ id: d.id, ...d.data() } as UserNotification);
+        });
+        setNotifications(unread);
+      },
+      (error) => {
+        // Silently fail — notification is non-critical
+        console.warn('[Notifications] Listener error:', error.message);
+      }
+    );
 
     return () => unsub();
   }, [user?.uid]);
@@ -71,8 +75,8 @@ export default function NotificationPopup() {
     // Wait for exit animation
     setTimeout(() => {
       setCurrentNotif(null);
-      setNotifications(prev => prev.filter(n => n.id !== notifId));
-    }, 300);
+      setNotifications((prev) => prev.filter((n) => n.id !== notifId));
+    }, 250);
 
     // Mark as read in Firestore
     try {
@@ -84,28 +88,14 @@ export default function NotificationPopup() {
 
   const getIcon = (type: string) => {
     switch (type) {
-      case 'success': return <CheckCircle className="w-5 h-5 text-green-400" />;
-      case 'warning': return <AlertTriangle className="w-5 h-5 text-amber-400" />;
-      case 'bug_resolved': return <Sparkles className="w-5 h-5 text-emerald-400" />;
-      default: return <Info className="w-5 h-5 text-blue-400" />;
-    }
-  };
-
-  const getBorderColor = (type: string) => {
-    switch (type) {
-      case 'success': return 'border-green-500/30';
-      case 'warning': return 'border-amber-500/30';
-      case 'bug_resolved': return 'border-emerald-500/30';
-      default: return 'border-blue-500/30';
-    }
-  };
-
-  const getBgColor = (type: string) => {
-    switch (type) {
-      case 'success': return 'bg-green-500/5';
-      case 'warning': return 'bg-amber-500/5';
-      case 'bug_resolved': return 'bg-emerald-500/5';
-      default: return 'bg-blue-500/5';
+      case 'success':
+        return <CheckCircle className="w-4 h-4 text-emerald-400" />;
+      case 'warning':
+        return <AlertTriangle className="w-4 h-4 text-amber-400" />;
+      case 'bug_resolved':
+        return <Sparkles className="w-4 h-4 text-sky-400" />;
+      default:
+        return <Info className="w-4 h-4 text-zinc-300" />;
     }
   };
 
@@ -116,61 +106,45 @@ export default function NotificationPopup() {
       <AnimatePresence>
         {visible && (
           <motion.div
-            initial={{ opacity: 0, y: -60, scale: 0.9 }}
+            initial={{ opacity: 0, y: -20, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -40, scale: 0.9 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            exit={{ opacity: 0, y: -16, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
             className="pointer-events-auto"
           >
-            <div className={`
-              relative rounded-2xl border shadow-2xl backdrop-blur-xl overflow-hidden
-              ${getBorderColor(currentNotif.type)} ${getBgColor(currentNotif.type)}
-            `}>
-              {/* Gradient accent bar */}
-              <div className={`absolute top-0 left-0 right-0 h-[2px] ${
-                currentNotif.type === 'success' ? 'bg-gradient-to-r from-green-500 to-emerald-500' :
-                currentNotif.type === 'warning' ? 'bg-gradient-to-r from-amber-500 to-orange-500' :
-                currentNotif.type === 'bug_resolved' ? 'bg-gradient-to-r from-emerald-500 to-cyan-500' :
-                'bg-gradient-to-r from-blue-500 to-purple-500'
-              }`} />
-
-              <div className="p-4 pt-5">
-                <div className="flex items-start gap-3">
-                  {/* Icon */}
-                  <div className={`p-2 rounded-xl shrink-0 ${
-                    currentNotif.type === 'success' ? 'bg-green-500/20' :
-                    currentNotif.type === 'warning' ? 'bg-amber-500/20' :
-                    currentNotif.type === 'bug_resolved' ? 'bg-emerald-500/20' :
-                    'bg-blue-500/20'
-                  }`}>
-                    {getIcon(currentNotif.type)}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-bold text-white leading-tight">{currentNotif.title}</h4>
-                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">{currentNotif.message}</p>
-                    <p className="text-[10px] text-gray-600 mt-2">From Muse Admin</p>
-                  </div>
-
-                  {/* Close */}
-                  <button
-                    onClick={() => dismissNotification(currentNotif.id)}
-                    className="p-1 hover:bg-white/10 rounded-lg transition-colors shrink-0"
-                  >
-                    <X className="w-4 h-4 text-gray-500" />
-                  </button>
+            <div className="relative rounded-2xl bg-[#121215]/95 backdrop-blur-2xl border border-white/10 shadow-2xl p-3.5 sm:p-4 overflow-hidden">
+              <div className="flex items-start gap-3">
+                {/* Minimal Icon Badge */}
+                <div className="p-2 rounded-xl bg-white/[0.05] border border-white/10 shrink-0 mt-0.5">
+                  {getIcon(currentNotif.type)}
                 </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0 pr-1">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <h4 className="text-xs font-semibold text-white tracking-tight truncate">
+                      {currentNotif.title}
+                    </h4>
+                    <span className="text-[10px] text-zinc-500 font-medium shrink-0">Muse</span>
+                  </div>
+                  <p className="text-xs text-zinc-300 leading-relaxed break-words">
+                    {currentNotif.message}
+                  </p>
+                </div>
+
+                {/* Close Button */}
+                <button
+                  onClick={() => dismissNotification(currentNotif.id)}
+                  className="p-1 -mr-1 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors shrink-0"
+                  aria-label="Dismiss notification"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
 
-              {/* Progress bar for auto-dismiss */}
+              {/* Minimal Progress Bar */}
               <motion.div
-                className={`h-[2px] ${
-                  currentNotif.type === 'success' ? 'bg-green-500/50' :
-                  currentNotif.type === 'warning' ? 'bg-amber-500/50' :
-                  currentNotif.type === 'bug_resolved' ? 'bg-emerald-500/50' :
-                  'bg-blue-500/50'
-                }`}
+                className="absolute bottom-0 left-0 right-0 h-[1.5px] bg-white/20"
                 initial={{ width: '100%' }}
                 animate={{ width: '0%' }}
                 transition={{ duration: 8, ease: 'linear' }}

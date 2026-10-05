@@ -13,6 +13,22 @@ export function upgradeQuality(url: string): string {
     return url;
 }
 
+export function getAlternateBitrates(url: string): string[] {
+    if (!url) return [];
+    const list: string[] = [];
+    if (url.includes('_320.mp4')) {
+        list.push(url.replace('_320.mp4', '_160.mp4'));
+        list.push(url.replace('_320.mp4', '_96.mp4'));
+    } else if (url.includes('_160.mp4')) {
+        list.push(url.replace('_160.mp4', '_96.mp4'));
+        list.push(url.replace('_160.mp4', '_320.mp4'));
+    } else if (url.includes('_96.mp4')) {
+        list.push(url.replace('_96.mp4', '_160.mp4'));
+        list.push(url.replace('_96.mp4', '_320.mp4'));
+    }
+    return list;
+}
+
 export function decodeSaavnUrl(encryptedUrl: string): string {
     if (!encryptedUrl) return '';
     try {

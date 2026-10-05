@@ -6,6 +6,7 @@ import { createPlaylist, addToPlaylist, getUserPlaylists } from '@/lib/ranking';
 import { useAuth } from '@/contexts/AuthContext';
 import { Song } from '@/lib/types';
 import Spinner from '@/reusable/animations/loading/Spinner';
+import { useBackHandler } from '@/platform/useBackHandler';
 
 interface ImportModalProps {
   isOpen: boolean;
@@ -14,6 +15,9 @@ interface ImportModalProps {
 }
 
 export default function ImportModal({ isOpen, onClose, onComplete }: ImportModalProps) {
+  // Intercept phone back button to dismiss Import modal first
+  useBackHandler(isOpen, onClose, 'importModal');
+
   const { user, role } = useAuth();
   const [url, setUrl] = useState('');
   const [playlistName, setPlaylistName] = useState('');

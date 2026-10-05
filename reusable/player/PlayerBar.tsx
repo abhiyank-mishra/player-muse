@@ -13,8 +13,7 @@ import { useToast } from '@/contexts/ToastContext';
 import DesktopPlayer from '@/platform/web/DesktopPlayer';
 import MobileMiniPlayer from '@/platform/android/MobileMiniPlayer';
 import DesktopFullScreenPlayer from '@/platform/web/DesktopFullScreenPlayer';
-import { useAndroidBackHandler } from '@/platform/android/useAndroidBackHandler';
-import { useIOSBackHandler } from '@/platform/ios/useIOSBackHandler';
+import { useBackHandler } from '@/platform/useBackHandler';
 import { useUI } from '@/contexts/UIContext';
 import ProPurchaseModal from '@/reusable/ui/modals/ProPurchaseModal';
 import QueuePanel from './QueuePanel';
@@ -27,7 +26,7 @@ export default function PlayerBar() {
   const [downloading, setDownloading] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(-1);
   const { showToast } = useToast();
-  const { isProModalOpen, setProModalOpen } = useUI();
+  const { isProModalOpen, setProModalOpen, openAddToPlaylist } = useUI();
   const { user, isAdmin, isPro, login } = useAuth();
   const [isLiked, setIsLiked] = useState(false);
   
@@ -55,6 +54,8 @@ export default function PlayerBar() {
     setQueueOpen,
     toggleQueue
   } = usePlayer();
+
+  const handleCloseQueue = React.useCallback(() => setQueueOpen(false), [setQueueOpen]);
 
   const { isInRoom, isColabLocked, broadcastSeek, playNextInColabQueue, playPrevInColabSong } = useColab();
 
@@ -99,14 +100,10 @@ export default function PlayerBar() {
   };
   
   // Intercept hardware/swipe backs to close the player overlay
-  useAndroidBackHandler(isExpanded || isDesktopFullScreen, () => {
+  useBackHandler(isExpanded || isDesktopFullScreen, () => {
     setIsExpanded(false);
     setDesktopFullScreen(false);
-  });
-  useIOSBackHandler(isExpanded || isDesktopFullScreen, () => {
-    setIsExpanded(false);
-    setDesktopFullScreen(false);
-  });
+  }, 'fullPlayer');
 
   // Local seek state for smooth dragging without audio glitches
   const [localSeek, setLocalSeek] = useState(0);
@@ -420,15 +417,15 @@ export default function PlayerBar() {
     }
   };
 
-  const handlePlaylistClick = async (e: React.MouseEvent) => {
+  const handlePlaylistClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user) {
       login();
       return;
     }
-    const userPlaylists = await getUserPlaylists(user.uid);
-    setPlaylists(userPlaylists);
-    setShowPlaylistsModal(!showPlaylistsModal);
+    if (currentSong) {
+      openAddToPlaylist(currentSong);
+    }
   };
 
   const handleAddToPlaylist = async (playlistId: string, e: React.MouseEvent) => {
@@ -534,6 +531,7 @@ export default function PlayerBar() {
             onToggleFullScreen={toggleFullScreen}
             isQueueOpen={isQueueOpen}
             onToggleQueue={toggleQueue}
+            getCurrentTime={getCurrentTime}
           />
         )}
       </AnimatePresence>
@@ -569,7 +567,7 @@ export default function PlayerBar() {
 
       <QueuePanel 
         isOpen={isQueueOpen} 
-        onClose={() => setQueueOpen(false)} 
+        onClose={handleCloseQueue} 
       />
     </>
   );

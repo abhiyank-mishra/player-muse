@@ -23,14 +23,11 @@ export default function SongListItem({ song, onPlay, onLikeToggle, onRemove, ind
   const { currentSong, isPlaying, playSong, togglePlay, playNext, addToQueue } = usePlayer();
   const { user, isAdmin, isPro, login } = useAuth();
   const [isLiked, setIsLiked] = useState(false);
-  const [showPlaylists, setShowPlaylists] = useState(false);
-  const [playlists, setPlaylists] = useState<any[]>([]);
-  const [addingToId, setAddingToId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState(-1); // -1 = not started, 0-100 = progress
-  const { setProModalOpen } = useUI();
+  const { setProModalOpen, openAddToPlaylist } = useUI();
   
   const isCurrent = currentSong?.id === song.id;
   const isThisPlaying = isCurrent && isPlaying;
@@ -132,37 +129,13 @@ export default function SongListItem({ song, onPlay, onLikeToggle, onRemove, ind
     playNext(song);
   };
 
-  const handlePlaylistClick = async (e: React.MouseEvent) => {
+  const handlePlaylistClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!user) {
       login();
       return;
     }
-    setShowPlaylists(!showPlaylists);
-    if (!showPlaylists) {
-      const data = await getUserPlaylists(user.uid, isPro);
-      setPlaylists(data);
-    }
-  };
-
-  const handleAddToPlaylist = async (playlistId: string) => {
-    setAddingToId(playlistId);
-    try {
-      // Check if playlist already has 50 songs
-      const playlist = playlists.find(p => p.id === playlistId);
-      if (playlist && playlist.songs && playlist.songs.length >= 50) {
-        setErrorMsg('Playlist is full (Max 50 songs)');
-        setTimeout(() => setErrorMsg(''), 3000);
-        setAddingToId(null);
-        return;
-      }
-      await addToPlaylist(user!.uid, playlistId, song);
-      setShowPlaylists(false);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setAddingToId(null);
-    }
+    openAddToPlaylist(song);
   };
 
   const onDragEnd = async (_: any, info: any) => {
@@ -317,35 +290,6 @@ export default function SongListItem({ song, onPlay, onLikeToggle, onRemove, ind
           >
             <PlusCircle className="w-4 h-4 text-gray-500 hover:text-white" />
           </button>
-
-          <AnimatePresence>
-            {showPlaylists && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                className="absolute bottom-12 right-0 min-w-[14rem] bg-[#18181b]/95 backdrop-blur-xl border border-white/10 p-2 rounded-xl shadow-2xl z-50 flex flex-col gap-1"
-                style={{ maxWidth: '90vw' }}
-              >
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2 py-1">Save to Playlist</p>
-                {playlists.length > 0 ? (
-                  playlists.map(p => (
-                    <button 
-                      key={p.id}
-                      disabled={addingToId === p.id}
-                      onClick={(e) => { e.stopPropagation(); handleAddToPlaylist(p.id); }}
-                      className="flex items-center justify-between w-full p-2 rounded-lg text-left text-xs font-semibold hover:bg-white/5 transition-all text-gray-300 hover:text-white disabled:opacity-50"
-                    >
-                      <span className="truncate">{p.name}</span>
-                      {addingToId === p.id ? <svg className="w-3 h-3 animate-spin text-purple-400" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg> : <PlusCircle className="w-3 h-3 text-purple-400" />}
-                    </button>
-                  ))
-                ) : (
-                  <p className="text-[10px] text-gray-500 italic px-2 py-2 text-center text-balance">Create one in Sidebar!</p>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
       </div>
 

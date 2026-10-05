@@ -76,6 +76,13 @@ export const userPlaylistsCache = {
     userPlaylistsCache.set(userId, next);
   },
 
+  removeSingle: (userId: string, playlistId: string) => {
+    const list = userPlaylistsCache.get(userId) || userPlaylistsCache.restoreFromStorage(userId);
+    if (!list) return;
+    const next = list.filter((p) => p.id !== playlistId);
+    userPlaylistsCache.set(userId, next);
+  },
+
   invalidate: (userId?: string) => {
     memoryPlaylistsCache = null;
     lastCacheTime = 0;

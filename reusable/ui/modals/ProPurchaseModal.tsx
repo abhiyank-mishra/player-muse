@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { db } from '@/lib/firebase';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, updateDoc, doc, orderBy, limit } from 'firebase/firestore';
+import { useBackHandler } from '@/platform/useBackHandler';
 
 interface ProPurchaseModalProps {
   isOpen: boolean;
@@ -20,6 +21,9 @@ const PLANS = [
 ];
 
 export default function ProPurchaseModal({ isOpen, onClose }: ProPurchaseModalProps) {
+  // Intercept phone back button to close Pro modal first
+  useBackHandler(isOpen, onClose, 'proModal');
+
   const { user, userName } = useAuth();
   const { showToast } = useToast();
   const [selectedPlan, setSelectedPlan] = useState(PLANS[1]);

@@ -248,18 +248,66 @@ export const deletePlaylist = async (userId: string, playlistId: string) => {
   await deleteDoc(playlistRef);
 };
 
-export const addToPlaylist = async (userId: string, playlistId: string, song: Song) => {
+export const sanitizeSongData = (song: Song): Record<string, any> => {
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(song)) {
+    if (value !== undefined) {
+      clean[key] = value;
+    }
+  }
+  return clean;
+};
+
+export const addToPlaylist = async (
+  userId: string, 
+  playlistId: string, 
+  song: Song
+): Promise<{ alreadyExists: boolean; playlistName: string }> => {
+  const cleanSong = sanitizeSongData(song);
   const playlistRef = doc(db, 'users', userId, 'playlists', playlistId);
+  const snap = await getDoc(playlistRef);
+  
+  if (!snap.exists()) {
+    throw new Error('Playlist not found');
+  }
+
+  const playlistData = snap.data();
+  const playlistName = playlistData?.name || 'Playlist';
+  const existingSongs: any[] = playlistData?.songs || [];
+
+  const alreadyExists = existingSongs.some((s: any) => s.id === cleanSong.id);
+  if (alreadyExists) {
+    return { alreadyExists: true, playlistName };
+  }
+
+  if (existingSongs.length >= 50) {
+    throw new Error('Playlist is full (Max 50 songs)');
+  }
+
   await updateDoc(playlistRef, {
-    songs: arrayUnion(song)
+    songs: arrayUnion(cleanSong)
   });
+
+  if (typeof window !== 'undefined') {
+    EventBus.emit('playlist:updated', { playlistId, song: cleanSong });
+  }
+
+  return { alreadyExists: false, playlistName };
 };
 
 export const removeFromPlaylist = async (userId: string, playlistId: string, song: Song) => {
   const playlistRef = doc(db, 'users', userId, 'playlists', playlistId);
-  await updateDoc(playlistRef, {
-    songs: arrayRemove(song)
-  });
+  const snap = await getDoc(playlistRef);
+  if (snap.exists()) {
+    const existingSongs: any[] = snap.data()?.songs || [];
+    const updatedSongs = existingSongs.filter((s: any) => s.id !== song.id);
+    await updateDoc(playlistRef, {
+      songs: updatedSongs
+    });
+    if (typeof window !== 'undefined') {
+      EventBus.emit('playlist:updated', { playlistId, songId: song.id, removed: true });
+    }
+  }
 };
 
 export const renamePlaylist = async (userId: string, playlistId: string, newName: string) => {

@@ -34,6 +34,11 @@ export function useSearchLogic() {
   const currentReqIdRef = useRef<number>(0);
   const suggestionsAbortRef = useRef<AbortController | null>(null);
 
+  // Flag to differentiate deliberate typing from programmatic query updates
+  const isTypingRef = useRef<boolean>(false);
+  // Track last committed search query to prevent duplicate searches
+  const lastExecutedQueryRef = useRef<string>('');
+
   // Load history from localStorage
   useEffect(() => {
     const saved = localStorage.getItem('search_history');
@@ -90,12 +95,16 @@ export function useSearchLogic() {
         }
         router.replace(`/search?${newParams.toString()}`);
       }
-    }, 250);
+    }, 300);
     return () => clearTimeout(timer);
   }, [query, router, searchParams]);
 
-  // Fetch suggestions when user is actively typing
+  // Fetch suggestions ONLY when user is actively typing
   useEffect(() => {
+    if (!isTypingRef.current) {
+      return;
+    }
+
     const trimmed = query.trim();
     if (trimmed.length < 2) {
       setSuggestions([]);
@@ -104,6 +113,8 @@ export function useSearchLogic() {
     }
 
     const timer = setTimeout(async () => {
+      if (!isTypingRef.current) return;
+
       if (suggestionsAbortRef.current) {
         suggestionsAbortRef.current.abort();
       }
@@ -116,15 +127,17 @@ export function useSearchLogic() {
         });
         if (res.ok) {
           const data = await res.json();
-          setSuggestions(data.results || []);
-          setShowSuggestions((data.results || []).length > 0);
+          if (!isTypingRef.current) return;
+          const items = data.results || [];
+          setSuggestions(items);
+          setShowSuggestions(items.length > 0);
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
           console.error('Suggestions fetch error:', err);
         }
       }
-    }, 150);
+    }, 180);
 
     return () => {
       clearTimeout(timer);
@@ -147,6 +160,7 @@ export function useSearchLogic() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     const reqId = ++currentReqIdRef.current;
+    lastExecutedQueryRef.current = `${q.trim().toLowerCase()}_p${pageNum}`;
 
     setLoading(true);
 
@@ -205,18 +219,24 @@ export function useSearchLogic() {
     }
   }, [user]);
 
-  // When debounced query changes, reset page to 1 and search immediately
+  // When debounced query changes, execute search if not already triggered
   useEffect(() => {
-    if (!debouncedQuery.trim()) {
+    const trimmed = debouncedQuery.trim();
+    if (!trimmed) {
       setResults({ artists: [], playlists: [], songs: [] });
       setHasMore(false);
       setPage(1);
       return;
     }
 
+    // Skip if this query and page was already executed by commitSearch/selectSuggestion
+    if (lastExecutedQueryRef.current === `${trimmed.toLowerCase()}_p1`) {
+      return;
+    }
+
     setPage(1);
     setHasMore(true);
-    searchMusic(debouncedQuery, 1);
+    searchMusic(trimmed, 1);
   }, [debouncedQuery, searchMusic]);
 
   // Infinite Scroll Trigger
@@ -233,12 +253,32 @@ export function useSearchLogic() {
     playSong(song, 'standalone');
   };
 
+  const handleQueryChange = (val: string) => {
+    isTypingRef.current = true;
+    setQuery(val);
+  };
+
+  const commitSearch = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    isTypingRef.current = false;
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setQuery(trimmed);
+    setDebouncedQuery(trimmed);
+    setPage(1);
+    setHasMore(true);
+    searchMusic(trimmed, 1);
+  };
+
   const clearSearch = () => {
+    isTypingRef.current = false;
     setQuery('');
     setDebouncedQuery('');
     setResults({ artists: [], playlists: [], songs: [] });
     setSuggestions([]);
     setShowSuggestions(false);
+    lastExecutedQueryRef.current = '';
     router.replace('/search');
   };
 
@@ -252,7 +292,10 @@ export function useSearchLogic() {
   };
 
   const selectSuggestion = (item: any) => {
+    isTypingRef.current = false;
     setShowSuggestions(false);
+    setSuggestions([]);
+
     if (item.type === 'artist') {
       router.push(`/artist/${item.id}`);
     } else if (item.type === 'album') {
@@ -260,6 +303,8 @@ export function useSearchLogic() {
     } else {
       setQuery(item.title);
       setDebouncedQuery(item.title);
+      setPage(1);
+      setHasMore(true);
       searchMusic(item.title, 1);
     }
   };
@@ -277,6 +322,8 @@ export function useSearchLogic() {
 
   const actions: SearchActions = {
     setQuery,
+    handleQueryChange,
+    commitSearch,
     clearSearch,
     clearHistory,
     handlePlay,

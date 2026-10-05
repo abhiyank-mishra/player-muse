@@ -6,6 +6,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { Song } from '@/lib/types';
 import { X, Plus, Save } from 'lucide-react';
 import Spinner from '@/reusable/animations/loading/Spinner';
+import { useBackHandler } from '@/platform/useBackHandler';
 
 interface CuratedPlaylistModalProps {
   isOpen: boolean;
@@ -20,6 +21,9 @@ export default function CuratedPlaylistModal({
   onSuccess,
   editPlaylist
 }: CuratedPlaylistModalProps) {
+  // Intercept phone back button to close Curated modal first
+  useBackHandler(isOpen, onClose, 'curatedPlaylistModal');
+
   const { user } = useAuth();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);

@@ -346,10 +346,7 @@ export default function MobileExpandedPlayer({
                 }}
             />
 
-            {/* Modal Backdrop */}
-            {showPlaylistsModal && (
-                <div className="fixed inset-0 z-50 bg-black/50" onClick={onClosePlaylist} />
-            )}
+
 
             {/* ─── Top Header (Clean: Chevron Down + Now Playing + Share) ─── */}
             <div 
@@ -648,22 +645,13 @@ export default function MobileExpandedPlayer({
                         </button>
 
                         {/* Playlist Add */}
-                        <div className="relative">
-                            <button 
-                                onClick={onPlaylistClick}
-                                className="p-2.5 rounded-full hover:bg-white/10 active:scale-75 transition-all text-neutral-300 hover:text-white"
-                                aria-label="Add to playlist"
-                            >
-                                <PlusCircle className="w-6 h-6" />
-                            </button>
-                            <AddToPlaylistModal 
-                                isOpen={showPlaylistsModal}
-                                playlists={playlists}
-                                addingToId={addingToId}
-                                onAddToPlaylist={onAddToPlaylist}
-                                onClose={onClosePlaylist}
-                            />
-                        </div>
+                        <button 
+                            onClick={onPlaylistClick}
+                            className="p-2.5 rounded-full hover:bg-white/10 active:scale-75 transition-all text-neutral-300 hover:text-white"
+                            aria-label="Add to playlist"
+                        >
+                            <PlusCircle className="w-6 h-6" />
+                        </button>
 
                         {/* Download */}
                         <button 

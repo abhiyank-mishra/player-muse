@@ -1,25 +1,26 @@
 "use client";
+
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Crown, Download, Wifi, Music2, ListPlus, Sparkles } from 'lucide-react';
+import { Crown, Sparkles, Check } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const PRO_BENEFITS = [
-  { icon: ListPlus, text: 'Create unlimited playlists' },
-  { icon: Download, text: 'Download any song' },
-  { icon: Wifi, text: 'High-quality audio streaming' },
-  { icon: Music2, text: 'Ad-free premium listening' },
+  'Unlimited Custom Playlists',
+  'Offline Song Downloads',
+  'Lossless Audio Quality',
+  '100% Ad-Free Experience',
 ];
 
 export default function ProSubscriptionPopup() {
   const { isPro, subscriptionNotified, proAdminMessage, proGivenBy, proExpiryDate, markSubscriptionNotified } = useAuth();
 
-  // Show only when: user is Pro, not yet notified, and there is an admin message (meaning it was admin-granted not just role-set)
+  // Show only when: user is Pro, not yet notified, and there is an admin message
   const shouldShow = isPro && !subscriptionNotified && !!proAdminMessage;
 
   const expiryStr = proExpiryDate
-    ? proExpiryDate.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-    : 'Unknown';
+    ? proExpiryDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    : 'Active';
 
   const daysLeft = proExpiryDate
     ? Math.max(0, Math.ceil((proExpiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
@@ -28,90 +29,86 @@ export default function ProSubscriptionPopup() {
   return (
     <AnimatePresence>
       {shouldShow && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-        >
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          {/* Subtle backdrop */}
           <motion.div
-            initial={{ scale: 0.85, opacity: 0, y: 30 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.85, opacity: 0, y: 30 }}
-            transition={{ type: 'spring', damping: 18, stiffness: 260 }}
-            className="bg-[#0f0f1a] border border-purple-500/40 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden"
-          >
-            {/* Hero Section */}
-            <div className="relative overflow-hidden bg-gradient-to-br from-purple-900/60 via-amber-900/30 to-purple-900/60 px-6 pt-8 pb-6 text-center">
-              {/* Animated glow */}
-              <motion.div
-                animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
-                transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
-                className="absolute inset-0 bg-radial-gradient bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-amber-500/20 blur-2xl"
-              />
-              <motion.div
-                animate={{ rotate: [0, 5, -5, 0] }}
-                transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
-                className="relative z-10 inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-amber-400 to-purple-600 rounded-full mb-4 shadow-2xl"
-              >
-                <Crown className="w-8 h-8 text-white fill-white" />
-              </motion.div>
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+          />
 
-              <h1 className="relative z-10 text-2xl font-black text-white mb-1">You got Pro! 🎉</h1>
-              <p className="relative z-10 text-sm text-purple-300">
-                {proGivenBy ? `${proGivenBy} gave you Pro subscription` : 'You received Pro subscription'}
+          {/* Modal Container */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 16 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 16 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 320 }}
+            className="relative w-full max-w-sm bg-[#121215]/95 border border-white/10 rounded-2xl p-5 sm:p-6 shadow-2xl overflow-hidden space-y-4"
+          >
+            {/* Header Badge & Title */}
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400 flex items-center justify-center mx-auto mb-3">
+                <Crown className="w-6 h-6" />
+              </div>
+              <h2 className="text-lg font-bold text-white tracking-tight">Pro Access Activated</h2>
+              <p className="text-xs text-zinc-400 mt-1">
+                {proGivenBy ? `Granted by ${proGivenBy}` : 'Your premium access is now live'}
               </p>
             </div>
 
-            <div className="p-6 space-y-4">
-              {/* Admin Message */}
-              {proAdminMessage && (
-                <div className="bg-white/5 border border-purple-500/20 rounded-xl px-4 py-3">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Message from Admin</p>
-                  </div>
-                  <p className="text-sm text-white/90 leading-relaxed italic">"{proAdminMessage}"</p>
+            {/* Admin Personal Message (High Focus) */}
+            {proAdminMessage && (
+              <div className="bg-white/[0.04] border border-white/10 rounded-xl p-3.5 space-y-1">
+                <div className="flex items-center gap-1.5 text-amber-400/90">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="text-[10px] font-semibold tracking-wider uppercase">Message from Admin</span>
                 </div>
-              )}
+                <p className="text-xs sm:text-sm text-zinc-200 leading-relaxed italic">
+                  "{proAdminMessage}"
+                </p>
+              </div>
+            )}
 
-              {/* Subscription details */}
-              <div className="flex gap-3">
-                <div className="flex-1 bg-white/5 rounded-xl px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-gray-400">Duration</p>
-                  <p className="text-lg font-black text-amber-400">{daysLeft}<span className="text-xs font-medium ml-0.5">days</span></p>
-                </div>
-                <div className="flex-1 bg-white/5 rounded-xl px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-gray-400">Expires</p>
-                  <p className="text-xs font-bold text-white leading-tight mt-0.5">{expiryStr}</p>
+            {/* Duration / Validity (High Focus) */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 text-center">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-medium block">Duration</span>
+                <div className="mt-1 flex items-baseline justify-center gap-1">
+                  <span className="text-xl font-bold text-white tracking-tight">{daysLeft}</span>
+                  <span className="text-xs text-zinc-400 font-medium">Days</span>
                 </div>
               </div>
+              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 text-center">
+                <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-medium block">Valid Until</span>
+                <p className="text-xs font-semibold text-zinc-200 mt-1.5 truncate">
+                  {expiryStr}
+                </p>
+              </div>
+            </div>
 
-              {/* Benefits */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Your Pro Benefits</p>
-                {PRO_BENEFITS.map(({ icon: Icon, text }) => (
-                  <div key={text} className="flex items-center gap-2.5 text-sm text-gray-300">
-                    <div className="w-6 h-6 rounded-full bg-purple-600/20 flex items-center justify-center shrink-0">
-                      <Icon className="w-3.5 h-3.5 text-purple-400" />
-                    </div>
-                    {text}
+            {/* Included Pro Features (High Focus) */}
+            <div className="space-y-2">
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold block">Included Features</span>
+              <div className="grid grid-cols-2 gap-2">
+                {PRO_BENEFITS.map((text) => (
+                  <div key={text} className="flex items-center gap-2 bg-white/[0.02] border border-white/5 rounded-lg px-2.5 py-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="text-xs text-zinc-300 font-medium leading-tight">{text}</span>
                   </div>
                 ))}
               </div>
-
-              {/* CTA */}
-              <motion.button
-                onClick={markSubscriptionNotified}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-purple-600 via-amber-500 to-purple-600 text-white font-black text-sm shadow-lg shadow-purple-500/30 hover:opacity-95 transition-all"
-              >
-                Start Listening ✨
-              </motion.button>
             </div>
+
+            {/* Action Button */}
+            <button
+              onClick={markSubscriptionNotified}
+              className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-100 text-zinc-950 font-semibold text-xs transition-colors shadow-sm whitespace-nowrap mt-2"
+            >
+              Start Listening
+            </button>
           </motion.div>
-        </motion.div>
+        </div>
       )}
     </AnimatePresence>
   );

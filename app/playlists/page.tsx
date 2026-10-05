@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePlayer } from '@/contexts/PlayerContext';
 import { getUserPlaylists, createPlaylist, deletePlaylist, renamePlaylist } from '@/lib/ranking';
-import { Music, Heart, Plus, Sparkles, ChevronRight, Search, ListMusic } from 'lucide-react';
+import { Music, Heart, Plus, Sparkles, ChevronRight, Search, ListMusic, Trash2, Edit2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Footer from '@/components/Footer';
 import ImportModal from '@/reusable/ui/modals/ImportModal';
@@ -11,11 +11,14 @@ import ConfirmModal from '@/reusable/ui/modals/ConfirmModal';
 import Link from 'next/link';
 import Spinner from '@/reusable/animations/loading/Spinner';
 import { useUI } from '@/contexts/UIContext';
+import { useToast } from '@/contexts/ToastContext';
+import { userPlaylistsCache } from '@/lib/userPlaylistsCache';
 import ProPurchaseModal from '@/reusable/ui/modals/ProPurchaseModal';
 
 export default function PlaylistsPage() {
   const { user, login, isAdmin, role, isPro } = useAuth();
   const { isProModalOpen, setProModalOpen } = useUI();
+  const { showToast } = useToast();
   const { setQueueConfig } = usePlayer();
   const [playlists, setPlaylists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -107,18 +110,22 @@ export default function PlaylistsPage() {
     }
   };
 
-  const handleDelete = (id: string, e?: React.MouseEvent) => {
+  const handleDelete = (id: string, name?: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
+    const targetName = name || playlists.find(p => p.id === id)?.name || 'this playlist';
     setConfirmConfig({
       isOpen: true,
       title: 'Delete Playlist',
-      message: 'Are you sure you want to delete this playlist?',
+      message: `Are you sure you want to delete "${targetName}"? This cannot be undone.`,
       onConfirm: async () => {
         try {
           await deletePlaylist(user!.uid, id);
-          setPlaylists(playlists.filter(p => p.id !== id));
+          userPlaylistsCache.removeSingle(user!.uid, id);
+          setPlaylists(prev => prev.filter(p => p.id !== id));
+          showToast(`Deleted "${targetName}"`, 'info');
         } catch (e) {
           console.error(e);
+          showToast('Failed to delete playlist', 'error');
         }
         setConfirmConfig(p => ({ ...p, isOpen: false }));
       }
@@ -291,27 +298,10 @@ export default function PlaylistsPage() {
 
             {/* User Playlists */}
             {playlists.map((playlist) => (
-              <div key={playlist.id} className="relative h-full" ref={(el) => { playlistRefs.current[playlist.id] = el; }}>
+              <div key={playlist.id} className="relative group/card h-full" ref={(el) => { playlistRefs.current[playlist.id] = el; }}>
                 <Link
                   href={`/my-playlist/${playlist.id}`}
-                  className="group flex items-center gap-4 p-3 rounded-2xl bg-[#121212] border border-transparent hover:bg-white/5 transition-all cursor-pointer h-full"
-                  onTouchStart={(e) => handleLongPressStart(playlist.id)}
-                  onTouchEnd={(e) => {
-                    if (handleLongPressEnd(e)) return;
-                  }}
-                  onTouchCancel={(e) => handleLongPressEnd(e)}
-                  onMouseDown={() => handleLongPressStart(playlist.id)}
-                  onMouseUp={(e) => {
-                    if (handleLongPressEnd(e)) return;
-                  }}
-                  onMouseLeave={(e) => handleLongPressEnd(e)}
-                  onContextMenu={(e) => e.preventDefault()}
-                  onClick={(e) => {
-                     if (longPressPlaylist === playlist.id) {
-                       e.preventDefault();
-                       e.stopPropagation();
-                     }
-                  }}
+                  className="group flex items-center gap-4 p-3 pr-20 rounded-2xl bg-[#121212] border border-transparent hover:bg-white/5 transition-all cursor-pointer h-full"
                 >
                   <div className="w-16 h-16 shrink-0 rounded-xl overflow-hidden bg-gray-800 shadow-lg relative">
                     {playlist.songs && playlist.songs[0]?.image?.[2] ? (
@@ -323,12 +313,40 @@ export default function PlaylistsPage() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-white truncate text-lg">{playlist.name}</h3>
+                    <h3 className="font-bold text-white truncate text-lg group-hover:text-purple-400 transition-colors">{playlist.name}</h3>
                     <p className="text-sm text-gray-400 truncate">
                       {playlist.songs?.length || 0} songs
                     </p>
                   </div>
                 </Link>
+
+                {/* Visible Actions: Rename & Delete */}
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1 z-10">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleEditClick(playlist, e);
+                    }}
+                    className="p-2 rounded-xl text-zinc-500 hover:text-zinc-200 hover:bg-white/10 transition-colors"
+                    title="Rename Playlist"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDelete(playlist.id, playlist.name, e);
+                    }}
+                    className="p-2 rounded-xl text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    title="Delete Playlist"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

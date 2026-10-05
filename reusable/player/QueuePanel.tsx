@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, AnimatePresence, Reorder, useDragControls } from 'framer-motion';
 import { 
   ListMusic, 
@@ -17,6 +17,7 @@ import { Song } from '@/lib/types';
 import { formatTime } from '@/lib/utils';
 import { getUserTasteSignals } from '@/lib/preferences';
 import { useCoverTheme } from '@/lib/coverTheme';
+import { useBackHandler } from '@/platform/useBackHandler';
 
 interface QueuePanelProps {
   isOpen: boolean;
@@ -28,13 +29,17 @@ function QueueRow({
   index,
   onPlay,
   onRemove,
-  onCommit
+  onCommit,
+  onDragStart,
+  onDragEnd
 }: {
   song: Song;
   index: number;
   onPlay: () => void;
   onRemove: () => void;
   onCommit: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }) {
   const dragControls = useDragControls();
   const [isDragging, setIsDragging] = useState(false);
@@ -43,11 +48,16 @@ function QueueRow({
     <Reorder.Item
       value={song}
       id={song.id}
+      layout="position"
       dragListener={false}
       dragControls={dragControls}
-      onDragStart={() => setIsDragging(true)}
+      onDragStart={() => {
+        setIsDragging(true);
+        onDragStart();
+      }}
       onDragEnd={() => {
         setIsDragging(false);
+        onDragEnd();
         onCommit();
       }}
       transition={{
@@ -133,15 +143,28 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
     manualQueue,
     playSong,
     removeQueueItem,
-    replaceUpcomingQueue
+    replaceUpcomingQueue,
+    isFullPlayerOpen,
+    isDesktopFullScreen
   } = usePlayer();
 
+  const isAnyFullScreen = Boolean(isFullPlayerOpen || isDesktopFullScreen);
   const { showToast } = useToast();
+  
+  // Intercept phone back button to close Queue first without closing Player or navigating away
+  useBackHandler(isOpen, onClose, 'queuePanel');
   const coverUrl = currentSong?.image?.[0]?.replace('150x150', '500x500') || currentSong?.image?.[1] || currentSong?.image?.[0] || '/logo.png';
   const theme = useCoverTheme(coverUrl);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const fetchingRef = useRef(false);
-  const [isMobile, setIsMobile] = useState(false);
+  
+  // Safe initial check to prevent layout jump on hydration
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 640;
+    }
+    return false;
+  });
   const sheetDragControls = useDragControls();
 
   useEffect(() => {
@@ -151,37 +174,44 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Compute upcoming songs list with strict ID deduplication
-  const rawUpcoming: Song[] = [
-    ...(manualQueue || []),
-    ...queue.slice(currentIndex + 1)
-  ];
+  // Compute upcoming songs list with strict ID deduplication (memoized to prevent re-render loop on seek)
+  const upcomingSongs = useMemo(() => {
+    const rawUpcoming: Song[] = [
+      ...(manualQueue || []),
+      ...queue.slice(currentIndex + 1)
+    ];
 
-  const seenIds = new Set<string>();
-  if (currentSong?.id) seenIds.add(currentSong.id);
+    const seenIds = new Set<string>();
+    if (currentSong?.id) seenIds.add(currentSong.id);
 
-  const upcomingSongs: Song[] = [];
-  for (const song of rawUpcoming) {
-    if (song && song.id && !seenIds.has(song.id)) {
-      seenIds.add(song.id);
-      upcomingSongs.push(song);
+    const result: Song[] = [];
+    for (const song of rawUpcoming) {
+      if (song && song.id && !seenIds.has(song.id)) {
+        seenIds.add(song.id);
+        result.push(song);
+      }
     }
-  }
+    return result;
+  }, [manualQueue, queue, currentIndex, currentSong?.id]);
 
   // Up to 14 songs displayed
-  const displayedSongs = upcomingSongs.slice(0, 14);
+  const displayedSongs = useMemo(() => upcomingSongs.slice(0, 14), [upcomingSongs]);
 
   const [orderedSongs, setOrderedSongs] = useState<Song[]>(displayedSongs);
 
-  const songIdsKey = displayedSongs.map(s => s.id).join(',');
+  const songIdsKey = useMemo(() => displayedSongs.map((s: Song) => s.id).join(','), [displayedSongs]);
   useEffect(() => {
     setOrderedSongs(displayedSongs);
-  }, [songIdsKey]);
+  }, [songIdsKey, displayedSongs]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const autoScrollRafRef = useRef<number | null>(null);
+  const isReorderingRef = useRef(false);
 
+  // Auto-scroll ONLY when a drag reorder is actively in progress
+  // Prevents layout thrashing (getBoundingClientRect) and rAF stutter during normal scrolling
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isReorderingRef.current) return;
     const container = scrollContainerRef.current;
     if (!container) return;
 
@@ -195,7 +225,7 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
     }
 
     const scroll = () => {
-      if (!container) return;
+      if (!container || !isReorderingRef.current) return;
       if (e.clientY < topThreshold && container.scrollTop > 0) {
         const factor = Math.min(1, Math.max(0.2, (topThreshold - e.clientY) / 70));
         container.scrollTop -= 12 * factor;
@@ -213,6 +243,7 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
   }, []);
 
   const handlePointerUp = useCallback(() => {
+    isReorderingRef.current = false;
     if (autoScrollRafRef.current) {
       cancelAnimationFrame(autoScrollRafRef.current);
       autoScrollRafRef.current = null;
@@ -250,9 +281,9 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
           if (Array.isArray(recos) && recos.length > 0) {
             const cleanAlpha = (s: string) => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
             const currentNorm = cleanAlpha(currentSong.name);
-            const existingNorms = new Set([currentNorm, ...upcomingSongs.map(s => cleanAlpha(s.name))]);
+            const existingNorms = new Set([currentNorm, ...upcomingSongs.map((s: Song) => cleanAlpha(s.name))]);
 
-            const fresh = recos.filter(s => {
+            const fresh = recos.filter((s: Song) => {
               const norm = cleanAlpha(s.name);
               return norm && !existingNorms.has(norm);
             });
@@ -357,40 +388,44 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <>
-          {/* Backdrop Blur: Blurs page behind, keeping controls and queue box sharp */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={onClose}
-            className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-md"
-          />
+        <motion.div
+          key="queue-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          onClick={onClose}
+          className={`fixed inset-0 ${isAnyFullScreen ? 'z-[95]' : 'z-[75] sm:z-[75]'} bg-black/60 backdrop-blur-sm sm:backdrop-blur-md`}
+        />
+      )}
 
-          {/* Queue Drawer / Panel */}
-          <motion.div
-            drag={isMobile ? "y" : false}
-            dragControls={sheetDragControls}
-            dragListener={false}
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0.05, bottom: 0.95 }}
-            onDragEnd={(_e, info) => {
-              if (info.offset.y > 100 || info.velocity.y > 300) {
-                onClose();
-              }
-            }}
-            initial={isMobile ? { y: "100%", opacity: 0 } : { opacity: 0, scale: 0.95, y: 15 }}
-            animate={isMobile ? { y: 0, opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
-            exit={isMobile ? { y: "100%", opacity: 0 } : { opacity: 0, scale: 0.95, y: 15 }}
-            transition={{ 
-              type: "spring", 
-              damping: 28, 
-              stiffness: 280, 
-              mass: 0.8 
-            }}
-            className="fixed inset-x-0 bottom-0 sm:inset-auto sm:bottom-28 sm:right-8 z-[75] w-full sm:w-[420px] sm:max-w-[calc(100vw-2rem)] h-[80vh] sm:h-auto sm:max-h-[calc(100vh-140px)] bg-[#09090b]/80 backdrop-blur-3xl border-t sm:border border-white/10 rounded-t-[32px] sm:rounded-2xl shadow-[0_-20px_50px_rgba(0,0,0,0.9)] sm:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden"
-          >
+      {isOpen && (
+        <motion.div
+          key="queue-panel"
+          drag={isMobile ? "y" : false}
+          dragControls={sheetDragControls}
+          dragListener={false}
+          dragConstraints={{ top: 0, bottom: 0 }}
+          dragElastic={{ top: 0, bottom: 0.6 }}
+          onDragEnd={(_e, info) => {
+            if (info.offset.y > 100 || info.velocity.y > 300) {
+              onClose();
+            }
+          }}
+          initial={isMobile ? { y: "100%" } : { opacity: 0, scale: 0.96, y: 12 }}
+          animate={isMobile ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+          exit={isMobile ? { y: "100%" } : { opacity: 0, scale: 0.96, y: 12 }}
+          transition={isMobile ? { 
+            type: "spring", 
+            damping: 32, 
+            stiffness: 340, 
+            mass: 0.7 
+          } : { 
+            duration: 0.2, 
+            ease: [0.16, 1, 0.3, 1] 
+          }}
+          className={`fixed inset-x-0 bottom-0 sm:inset-auto sm:bottom-28 sm:right-8 ${isAnyFullScreen ? 'z-[100]' : 'z-[100]'} w-full sm:w-[420px] sm:max-w-[calc(100vw-2rem)] h-[80vh] sm:h-auto sm:max-h-[calc(100vh-140px)] bg-[#101014] sm:bg-[#09090b]/85 sm:backdrop-blur-2xl border-t sm:border border-white/10 rounded-t-[32px] sm:rounded-2xl shadow-[0_-20px_50px_rgba(0,0,0,0.9)] sm:shadow-[0_20px_50px_-12px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden will-change-transform`}
+        >
             {/* Ambient Dynamic Song Theme Glow Layers */}
             <div 
               className="absolute inset-0 pointer-events-none transition-all duration-700 opacity-40"
@@ -573,13 +608,14 @@ export default function QueuePanel({ isOpen, onClose }: QueuePanelProps) {
                       onPlay={() => playSong(song, 'queue')}
                       onRemove={() => removeQueueItem(idx)}
                       onCommit={handleCommitOrder}
+                      onDragStart={() => { isReorderingRef.current = true; }}
+                      onDragEnd={() => { isReorderingRef.current = false; }}
                     />
                   ))}
                 </Reorder.Group>
               )}
             </div>
           </motion.div>
-        </>
       )}
     </AnimatePresence>
   );

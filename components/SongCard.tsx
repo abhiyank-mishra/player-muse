@@ -228,12 +228,7 @@ export default function SongCard({ song, onPlay, onLikeToggle }: SongCardProps) 
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
         />
 
-        {/* YouTube Source Badge */}
-        {(song.source === 'youtube' || song.type === 'youtube') && (
-          <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 bg-red-600/90 backdrop-blur-sm text-white text-[9px] font-bold uppercase tracking-wider rounded shadow z-20">
-            YouTube
-          </div>
-        )}
+
 
         {/* Like Button on Image - Top Right Corner ONLY, No Circular BG */}
         <button 

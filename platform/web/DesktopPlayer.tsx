@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { 
     Play, 
     Pause, 
@@ -61,6 +61,7 @@ interface DesktopPlayerProps {
     onToggleFullScreen: () => void;
     isQueueOpen?: boolean;
     onToggleQueue?: () => void;
+    getCurrentTime?: () => number;
 }
 
 export default function DesktopPlayer({
@@ -98,7 +99,8 @@ export default function DesktopPlayer({
     isControlDisabled,
     onToggleFullScreen,
     isQueueOpen,
-    onToggleQueue
+    onToggleQueue,
+    getCurrentTime
 }: DesktopPlayerProps) {
     
     // Dynamic cover art theme extraction
@@ -109,13 +111,69 @@ export default function DesktopPlayer({
 
     const theme = useCoverTheme(coverUrl);
 
+    // High-precision smooth playhead state (60fps rAF loop)
+    const [realtimeSeek, setRealtimeSeek] = useState(localSeek);
+    const [isScrubbing, setIsScrubbing] = useState(false);
+    const [hoverPercent, setHoverPercent] = useState<number | null>(null);
+    const [hoverTime, setHoverTime] = useState<number | null>(null);
+    const [hoverPos, setHoverPos] = useState<number>(0);
+    const progressBarRef = useRef<HTMLDivElement>(null);
+
+    // Smooth continuous playhead rAF loop polling audio engine directly
+    useEffect(() => {
+        if (!isPlaying || !getCurrentTime || isScrubbing) {
+            setRealtimeSeek(localSeek);
+            return;
+        }
+
+        let frameId: number;
+        let lastReported = -1;
+
+        const updateTick = () => {
+            const exactPos = getCurrentTime();
+            if (exactPos !== undefined && exactPos >= 0 && Math.abs(exactPos - lastReported) >= 0.015) {
+                lastReported = exactPos;
+                setRealtimeSeek(exactPos);
+            }
+            frameId = requestAnimationFrame(updateTick);
+        };
+        frameId = requestAnimationFrame(updateTick);
+        return () => cancelAnimationFrame(frameId);
+    }, [isPlaying, getCurrentTime, isScrubbing, localSeek]);
+
+    useEffect(() => {
+        if (!isPlaying || isScrubbing) {
+            setRealtimeSeek(localSeek);
+        }
+    }, [localSeek, isPlaying, isScrubbing]);
+
+    const displaySeek = isScrubbing ? localSeek : (isPlaying && getCurrentTime ? realtimeSeek : localSeek);
+    const progressPercent = Math.min(100, Math.max(0, (displaySeek / (duration || 1)) * 100));
+
+    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!progressBarRef.current || !duration) return;
+        const rect = progressBarRef.current.getBoundingClientRect();
+        const offsetX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const pct = (offsetX / rect.width) * 100;
+        setHoverPercent(pct);
+        setHoverTime((pct / 100) * duration);
+        // Clamp tooltip badge so it never clips off the container
+        const clampedPos = Math.max(22, Math.min(rect.width - 22, offsetX));
+        setHoverPos(clampedPos);
+    };
+
+    const handleMouseLeave = () => {
+        setHoverPercent(null);
+        setHoverTime(null);
+    };
+
     return (
         <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.25 }}
-            className="hidden md:flex fixed bottom-6 left-72 right-8 h-20 bg-[#09090b]/90 backdrop-blur-2xl border border-white/10 z-[80] px-6 items-center justify-between shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden transition-all duration-700"
+            className="hidden md:flex fixed bottom-6 left-72 right-8 h-20 bg-[#09090b]/90 backdrop-blur-2xl border border-white/10 z-[80] px-6 items-center justify-between shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] rounded-2xl transition-[border-color,box-shadow] duration-700"
             style={{
                 borderColor: `${theme.primary}2e`,
                 boxShadow: `0 20px 50px -12px rgba(0,0,0,0.7), 0 0 35px -8px ${theme.ambientRgba}`
@@ -168,23 +226,13 @@ export default function DesktopPlayer({
                     >
                         <Heart className={`w-4 h-4 transition-all ${isLiked ? 'fill-red-500 text-red-500' : 'text-gray-400 group-hover:text-white'}`} />
                     </button>
-                    <div className="relative">
-                        <button 
-                            onClick={onPlaylistClick}
-                            className="p-2 hover:bg-white/10 rounded-full transition-colors group"
-                            title="Add to playlist"
-                        >
-                            <PlusCircle className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
-                        </button>
-                        <AddToPlaylistModal 
-                            isOpen={showPlaylistsModal}
-                            playlists={playlists}
-                            addingToId={addingToId}
-                            onAddToPlaylist={onAddToPlaylist}
-                            onClose={onClosePlaylist}
-                            positionClass="absolute bottom-14 left-0"
-                        />
-                    </div>
+                    <button 
+                        onClick={onPlaylistClick}
+                        className="p-2 hover:bg-white/10 rounded-full transition-colors group"
+                        title="Add to playlist"
+                    >
+                        <PlusCircle className="w-4 h-4 text-gray-400 group-hover:text-white transition-colors" />
+                    </button>
                     <button 
                         onClick={onDownload}
                         disabled={downloading || isDownloaded}
@@ -232,45 +280,98 @@ export default function DesktopPlayer({
             </div>
 
             {/* 2. Middle Section: Timeline / Progress Scrubber spanning across full available space */}
-            <div className="relative z-10 flex-1 flex items-center gap-4 px-6 min-w-0">
-                <span className="text-xs text-gray-400 font-mono tabular-nums select-none shrink-0 min-w-[36px] text-right">
-                    {formatTime(localSeek)}
+            <div className="relative z-10 flex-1 flex items-center gap-3.5 px-6 min-w-0 group/timeline">
+                <span className="text-xs text-gray-400 group-hover/timeline:text-gray-200 font-mono tabular-nums select-none shrink-0 min-w-[38px] text-right transition-colors">
+                    {formatTime(displaySeek)}
                 </span>
-                <div className={`flex-1 h-2 bg-white/10 hover:h-2.5 rounded-full relative transition-all ${isControlDisabled ? 'cursor-not-allowed' : 'cursor-pointer group/seek'}`}>
-                    <div 
-                        className="absolute top-0 left-0 h-full rounded-full transition-all"
-                        style={{ 
-                            width: `${(localSeek / (duration || 1)) * 100}%`,
-                            background: `linear-gradient(to right, ${theme.primary}, ${theme.accent})`,
-                            boxShadow: isPlaying ? `0 0 10px ${theme.glowRgba}` : 'none'
-                        }}
-                    />
+                
+                <div 
+                    ref={progressBarRef}
+                    onMouseMove={handleMouseMove}
+                    onMouseLeave={handleMouseLeave}
+                    className={`flex-1 py-3.5 flex items-center relative select-none ${isControlDisabled ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                    {/* Floating Hover Timestamp Tooltip */}
+                    {hoverPercent !== null && hoverTime !== null && !isControlDisabled && (
+                        <div 
+                            className="absolute bottom-full mb-1 -translate-x-1/2 pointer-events-none z-30 flex flex-col items-center animate-in fade-in duration-150"
+                            style={{ left: `${hoverPos}px` }}
+                        >
+                            <div className="bg-[#121215]/95 backdrop-blur-md text-white text-[11px] font-mono font-medium px-2.5 py-0.5 rounded-full shadow-2xl border border-white/20 whitespace-nowrap">
+                                {formatTime(hoverTime)}
+                            </div>
+                            <div className="w-1.5 h-1.5 bg-[#121215] border-r border-b border-white/20 rotate-45 -mt-1" />
+                        </div>
+                    )}
+
+                    {/* Track Container (Sleek expansion on hover) */}
+                    <div className="w-full h-1.5 group-hover/timeline:h-2.5 bg-white/10 group-hover/timeline:bg-white/15 rounded-full relative transition-[height,background-color] duration-200 overflow-hidden shadow-inner">
+                        {/* Ghost Hover Preview Track */}
+                        {hoverPercent !== null && !isControlDisabled && (
+                            <div 
+                                className="absolute top-0 left-0 h-full rounded-full bg-white/20 pointer-events-none"
+                                style={{ width: `${hoverPercent}%` }}
+                            />
+                        )}
+                        {/* Hardware-accelerated 60 FPS Continuous Progress Bar */}
+                        <div 
+                            className="absolute top-0 left-0 h-full rounded-full pointer-events-none"
+                            style={{ 
+                                width: `${progressPercent}%`,
+                                background: `linear-gradient(90deg, ${theme.primary}, ${theme.accent})`,
+                                boxShadow: isPlaying ? `0 0 14px ${theme.glowRgba}` : 'none'
+                            }}
+                        />
+                    </div>
+
+                    {/* Glowing Leading Thumb Dot */}
                     {!isControlDisabled && (
                         <div 
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full shadow-lg opacity-0 group-hover/seek:opacity-100 transition-opacity pointer-events-none"
+                            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full pointer-events-none transition-transform duration-150 shadow-md ${
+                                isScrubbing 
+                                    ? 'scale-125 opacity-100 ring-4 ring-white/20' 
+                                    : 'scale-90 opacity-0 group-hover/timeline:opacity-100 group-hover/timeline:scale-100'
+                            }`}
                             style={{ 
-                                left: `${(localSeek / (duration || 1)) * 100}%`,
-                                backgroundColor: theme.lightAccent || '#ffffff',
-                                boxShadow: `0 0 10px ${theme.glowRgba}`
+                                left: `${progressPercent}%`,
+                                backgroundColor: '#ffffff',
+                                border: `2.5px solid ${theme.primary}`,
+                                boxShadow: `0 0 12px ${theme.glowRgba}, 0 2px 6px rgba(0,0,0,0.6)`
                             }}
                         />
                     )}
+
+                    {/* Accessible Transparent Range Input */}
                     <input 
                         type="range" 
                         min={0} 
                         max={duration || 1} 
                         step={0.1}
-                        value={localSeek}
+                        value={displaySeek}
                         disabled={isControlDisabled}
-                        onPointerDown={onSeekStart}
+                        onPointerDown={() => {
+                            setIsScrubbing(true);
+                            onSeekStart();
+                        }}
                         onChange={onSeekChange}
-                        onPointerUp={onSeekCommit}
-                        onMouseUp={onSeekCommit}
-                        onTouchEnd={onSeekCommit}
+                        onPointerUp={() => {
+                            setIsScrubbing(false);
+                            onSeekCommit();
+                        }}
+                        onMouseUp={() => {
+                            setIsScrubbing(false);
+                            onSeekCommit();
+                        }}
+                        onTouchEnd={() => {
+                            setIsScrubbing(false);
+                            onSeekCommit();
+                        }}
                         className={`absolute inset-0 w-full h-full opacity-0 ${isControlDisabled ? 'cursor-not-allowed pointer-events-none' : 'cursor-pointer'}`}
+                        aria-label="Seek timeline"
                     />
                 </div>
-                <span className="text-xs text-gray-400 font-mono tabular-nums select-none shrink-0 min-w-[36px]">
+
+                <span className="text-xs text-gray-400 group-hover/timeline:text-gray-200 font-mono tabular-nums select-none shrink-0 min-w-[38px] transition-colors">
                     {formatTime(duration)}
                 </span>
             </div>
@@ -333,15 +434,15 @@ export default function DesktopPlayer({
                 {/* Subtle Divider */}
                 <div className="w-[1px] h-6 bg-white/10 mx-1 shrink-0" />
 
-                {/* Volume Icon with Hover Vertical Slider Popup */}
+                {/* Volume Icon with Floating Vertical Slider Popup on TOP (upr side) */}
                 <div className="relative group/vol flex items-center justify-center">
-                    {/* Floating Vertical Slider Popup on Hover */}
+                    {/* Floating Vertical Slider Popup on Top (Above the Player Bar) */}
                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 pb-3 opacity-0 pointer-events-none group-hover/vol:opacity-100 group-hover/vol:pointer-events-auto group-focus-within/vol:opacity-100 group-focus-within/vol:pointer-events-auto transition-all duration-200 z-50">
-                        <div className="bg-[#141416]/95 backdrop-blur-xl border border-white/15 px-3 py-3 rounded-2xl shadow-2xl flex flex-col items-center gap-2">
+                        <div className="bg-[#141416]/95 backdrop-blur-2xl border border-white/15 px-3 py-3.5 rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.8)] flex flex-col items-center gap-2.5">
                             <span className="text-[10px] font-mono font-medium text-gray-300 select-none">
                                 {Math.round(volume * 100)}%
                             </span>
-                            <div className="relative w-2 h-28 bg-white/15 hover:bg-white/20 rounded-full flex flex-col justify-end p-0.5 cursor-pointer">
+                            <div className="relative w-2 h-28 bg-white/15 hover:bg-white/25 rounded-full flex flex-col justify-end p-0.5 cursor-pointer">
                                 <div 
                                     className="w-full rounded-full transition-all"
                                     style={{ 
@@ -367,6 +468,7 @@ export default function DesktopPlayer({
                                         WebkitAppearance: 'slider-vertical',
                                     }}
                                     className="absolute -inset-1 w-[calc(100%+8px)] h-[calc(100%+8px)] opacity-0 cursor-pointer"
+                                    aria-label="Volume Slider"
                                 />
                             </div>
                         </div>
@@ -374,9 +476,11 @@ export default function DesktopPlayer({
 
                     {/* Volume Button */}
                     <button
+                        type="button"
                         onClick={() => onVolumeChange(volume === 0 ? 0.7 : 0)}
                         className="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full"
                         title={volume === 0 ? "Unmute" : "Mute"}
+                        aria-label={volume === 0 ? "Unmute" : "Mute"}
                     >
                         {volume === 0 ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4" />}
                     </button>
@@ -384,10 +488,12 @@ export default function DesktopPlayer({
 
                 {/* Queue / Up Next Button (Added between Volume and Fullscreen with spacing) */}
                 <button 
+                    type="button"
                     onClick={onToggleQueue}
                     className={`text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full ${isQueueOpen ? 'bg-white/10' : ''}`}
                     style={isQueueOpen ? { color: theme.lightAccent } : undefined}
                     title="Up Next (Queue)"
+                    aria-label="Up Next (Queue)"
                 >
                     <ListMusic className="w-4 h-4" />
                 </button>

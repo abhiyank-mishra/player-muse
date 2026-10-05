@@ -11,9 +11,9 @@ export default function Footer() {
                 Muse uses the API for music metadata and streaming. Built with Next.js and Tailwind CSS. by Abhiyank.
             </p>
             <div className="flex gap-4 text-[10px] text-gray-500 uppercase tracking-widest font-bold">
-                <Link href="/privacy" className="hover:text-purple-400 transition-colors">Privacy Policy</Link>
+                <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
                 <span>•</span>
-                <Link href="/privacy" className="hover:text-purple-400 transition-colors">Terms of Service</Link>
+                <Link href="/privacy" className="hover:text-white transition-colors">Terms of Service</Link>
             </div>
         </div>
     </footer>

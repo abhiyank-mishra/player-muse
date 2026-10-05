@@ -13,6 +13,8 @@ export interface SearchState {
 
 export interface SearchActions {
   setQuery: (q: string) => void;
+  handleQueryChange: (q: string) => void;
+  commitSearch: (q: string) => void;
   clearSearch: () => void;
   clearHistory: () => void;
   handlePlay: (song: Song, index?: number) => void;

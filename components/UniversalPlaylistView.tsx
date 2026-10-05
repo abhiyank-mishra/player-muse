@@ -4,7 +4,7 @@ import React, { useRef, useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Song } from '@/lib/types';
 import SongListItem from '@/components/SongListItem';
-import { ChevronLeft, Play, Shuffle, Music2, Download } from 'lucide-react';
+import { ChevronLeft, Play, Shuffle, Music2, Download, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Footer from '@/components/Footer';
 import { useToast } from '@/contexts/ToastContext';
@@ -33,6 +33,7 @@ interface UniversalPlaylistViewProps {
   stats?: React.ReactNode;
   onRemove?: (song: Song) => void;
   playlistId?: string;
+  onDeletePlaylist?: () => void;
 }
 
 export default function UniversalPlaylistView({
@@ -50,7 +51,8 @@ export default function UniversalPlaylistView({
   type = 'playlist',
   stats,
   onRemove,
-  playlistId
+  playlistId,
+  onDeletePlaylist,
 }: UniversalPlaylistViewProps) {
   const router = useRouter();
   const observer = useRef<IntersectionObserver | null>(null);
@@ -283,6 +285,17 @@ export default function UniversalPlaylistView({
                   >
                     <Download className="w-4 h-4 md:w-5 md:h-5" />
                     Go Pro
+                  </button>
+               )}
+
+               {onDeletePlaylist && (
+                  <button 
+                    onClick={onDeletePlaylist}
+                    className="flex-none h-10 md:h-12 w-10 md:w-12 rounded-full bg-white/10 hover:bg-red-500/20 text-zinc-400 hover:text-red-400 border border-white/5 hover:border-red-500/30 flex items-center justify-center transition-all active:scale-95"
+                    title="Delete Playlist"
+                    aria-label="Delete Playlist"
+                  >
+                    <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
                   </button>
                )}
             </div>

@@ -66,9 +66,8 @@ export default function FeaturedPlaylists() {
 
     return (
         <div className="flex flex-col gap-4 mb-10">
-            <h2 className="text-xl md:text-3xl font-bold text-white tracking-tight flex items-center gap-2">
+            <h2 className="text-xl md:text-3xl font-bold text-white tracking-tight">
                 Featured Charts
-                <span className="px-1.5 py-0.5 bg-red-600/20 text-red-400 text-[10px] md:text-xs rounded-md uppercase tracking-wider">YouTube Music</span>
             </h2>
             
             <div className="flex gap-4 overflow-x-auto pb-4 hide-scrollbar" style={{ touchAction: 'pan-x pan-y' }}>
