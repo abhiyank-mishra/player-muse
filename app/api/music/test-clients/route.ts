@@ -31,18 +31,25 @@ export async function GET(req: Request) {
       headers: {}
     },
     {
-      name: 'ANDROID_TEST',
-      client: { clientName: 'ANDROID', clientVersion: '19.09.37', hl: 'en', gl: 'IN', androidSdkVersion: 34 },
-      ua: 'com.google.android.youtube/19.09.37 (Linux; U; Android 14) gzip',
+      name: 'ANDROID_COOKIE',
+      client: { clientName: 'ANDROID', clientVersion: '20.10.38', hl: 'en', gl: 'IN' },
+      ua: 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
       headers: {}
     },
     {
-      name: 'IOS_FULL',
-      client: { clientName: 'IOS', clientVersion: '19.45.4', deviceMake: 'Apple', deviceModel: 'iPhone16,2', hl: 'en', gl: 'IN', osName: 'iOS', osVersion: '17.5.1.21F90' },
-      ua: 'com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)',
+      name: 'IOS_MUSIC',
+      client: { clientName: 'IOS_MUSIC', clientVersion: '7.02.52', hl: 'en', gl: 'IN', deviceMake: 'Apple', deviceModel: 'iPhone16,2' },
+      ua: 'com.google.ios.youtubemusic/7.02.52 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)',
       headers: {}
     }
   ];
+
+  // Fetch guest cookie first
+  let guestCookie = '';
+  try {
+    const ytR = await fetch('https://www.youtube.com/', { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' } });
+    guestCookie = ytR.headers.get('set-cookie') || '';
+  } catch {}
 
   const results: Record<string, any> = {};
 
@@ -61,6 +68,10 @@ export async function GET(req: Request) {
         'User-Agent': c.ua,
         ...(c.headers || {})
       };
+
+      if (c.name === 'ANDROID_COOKIE' && guestCookie) {
+        reqHeaders['Cookie'] = guestCookie;
+      }
 
       const res = await fetch('https://www.youtube.com/youtubei/v1/player', {
         method: 'POST',
