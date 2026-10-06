@@ -141,7 +141,7 @@ export default function HomeUI({ state, actions }: HomeUIProps) {
                   Previous Muse
                 </h2>
                 <p className="text-gray-500 text-[10px] md:text-sm mt-0.5">
-                  Recent 6 songs
+                  Recent songs
                 </p>
               </div>
             </div>
