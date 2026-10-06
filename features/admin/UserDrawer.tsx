@@ -308,75 +308,93 @@ export function UserDrawer({
                     </div>
                   </div>
 
-                  {/* Last Played Song */}
-                  {user.lastPlayedSong && user.lastPlayedSong.name && (() => {
-                    const lastPlayedImg = getSongArtwork(user.lastPlayedSong.image);
-                    const lastSong: Song = {
-                      id: user.lastPlayedSong.id || '',
-                      name: user.lastPlayedSong.name,
-                      artist: user.lastPlayedSong.artist || '',
-                      album: '',
-                      image: [lastPlayedImg],
-                      url: '',
-                      duration: 0,
-                      has_lyrics: 'false',
-                      language: '',
-                      year: '',
-                      release_date: ''
-                    };
-                    const isCurrent = currentSong?.id === lastSong.id;
-                    const isThisPlaying = isCurrent && isPlaying;
+                  {/* Previous Songs (Up to 6) */}
+                  {(() => {
+                    const previousSongsList: any[] = (Array.isArray(user.previousSongs) && user.previousSongs.length > 0)
+                      ? user.previousSongs
+                      : (user.lastPlayedSong && user.lastPlayedSong.name ? [user.lastPlayedSong] : []);
+
+                    if (previousSongsList.length === 0) return null;
 
                     return (
-                      <div
-                        onClick={(e) => handlePlaySong(e, lastSong)}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer ${
-                          isCurrent ? 'border-white/20 bg-white/[0.06]' : 'border-white/5 bg-white/[0.02] hover:bg-white/5'
-                        }`}
-                      >
-                        <span className="text-[11px] uppercase tracking-wider text-zinc-400 block mb-2">Last Played Track</span>
-                        <div className="flex items-center gap-3">
-                          {lastPlayedImg ? (
-                            <img src={lastPlayedImg} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0 aspect-square border border-white/10" />
-                          ) : (
-                            <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
-                              <Music className="w-5 h-5 text-zinc-400" />
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <h4 className={`text-sm truncate ${isCurrent ? 'font-bold text-white' : 'font-semibold text-zinc-200'}`}>
-                              {user.lastPlayedSong.name}
-                            </h4>
-                            <p className="text-xs text-zinc-400 truncate">{user.lastPlayedSong.artist || 'Unknown'}</p>
-                          </div>
+                      <div className="space-y-2">
+                        <span className="text-[11px] uppercase tracking-wider text-zinc-400 block font-medium">
+                          Previous Songs ({previousSongsList.length}/6)
+                        </span>
+                        <div className="flex flex-col gap-2">
+                          {previousSongsList.map((prevSongItem: any, idx: number) => {
+                            const artwork = getSongArtwork(prevSongItem.image);
+                            const songObj: Song = {
+                              id: prevSongItem.id || '',
+                              name: prevSongItem.name || 'Unknown',
+                              artist: prevSongItem.artist || '',
+                              album: prevSongItem.album || '',
+                              image: [artwork],
+                              url: prevSongItem.url || '',
+                              duration: prevSongItem.duration || 0,
+                              has_lyrics: 'false',
+                              language: '',
+                              year: '',
+                              release_date: ''
+                            };
+                            const isCurrent = currentSong?.id === songObj.id;
+                            const isThisPlaying = isCurrent && isPlaying;
 
-                          <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              onClick={(e) => handlePlaySong(e, lastSong)}
-                              className={`p-2 rounded-lg transition-colors ${
-                                isThisPlaying ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/20 text-white'
-                              }`}
-                              title={isThisPlaying ? 'Pause' : 'Play song'}
-                            >
-                              {isThisPlaying ? (
-                                <Pause className="w-3.5 h-3.5 fill-current" />
-                              ) : (
-                                <Play className="w-3.5 h-3.5 fill-current" />
-                              )}
-                            </button>
-
-                            {lastSong.id && (
-                              <Link
-                                href={`/song/${encodeURIComponent(lastSong.id)}`}
-                                target="_blank"
-                                className="p-2 text-zinc-500 hover:text-white rounded-lg transition-colors"
-                                title="Open Song Page"
+                            return (
+                              <div
+                                key={`admin-prev-${prevSongItem.id || idx}`}
+                                onClick={(e) => handlePlaySong(e, songObj)}
+                                className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center gap-3 ${
+                                  isCurrent ? 'border-white/20 bg-white/[0.06]' : 'border-white/5 bg-white/[0.02] hover:bg-white/5'
+                                }`}
                               >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </Link>
-                            )}
-                          </div>
+                                <div className="w-4 text-center text-xs font-mono text-zinc-500 shrink-0">
+                                  {idx + 1}
+                                </div>
+                                {artwork ? (
+                                  <img src={artwork} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0 aspect-square border border-white/10" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center shrink-0">
+                                    <Music className="w-5 h-5 text-zinc-400" />
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <h4 className={`text-sm truncate ${isCurrent ? 'font-bold text-white' : 'font-semibold text-zinc-200'}`}>
+                                    {prevSongItem.name}
+                                  </h4>
+                                  <p className="text-xs text-zinc-400 truncate">{prevSongItem.artist || 'Unknown'}</p>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handlePlaySong(e, songObj)}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                      isThisPlaying ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/20 text-white'
+                                    }`}
+                                    title={isThisPlaying ? 'Pause' : 'Play song'}
+                                  >
+                                    {isThisPlaying ? (
+                                      <Pause className="w-3.5 h-3.5 fill-current" />
+                                    ) : (
+                                      <Play className="w-3.5 h-3.5 fill-current" />
+                                    )}
+                                  </button>
+
+                                  {songObj.id && (
+                                    <Link
+                                      href={`/song/${encodeURIComponent(songObj.id)}`}
+                                      target="_blank"
+                                      className="p-2 text-zinc-500 hover:text-white rounded-lg transition-colors"
+                                      title="Open Song Page"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </Link>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );

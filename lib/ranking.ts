@@ -110,18 +110,34 @@ export const recordSongPlay = async (userId: string, song: Song) => {
   try {
     const statsSnap = await getDoc(statsRef);
     const userRef = doc(db, 'users', userId);
-    
+    const userSnap = await getDoc(userRef);
+    const userData = userSnap.data();
+    const existingPrev: any[] = Array.isArray(userData?.previousSongs) ? userData.previousSongs : [];
+
+    const songArtwork = Array.isArray(song.image) ? song.image[song.image.length - 1] : (song.image || '');
+
+    const currentSongObj = {
+      id: song.id || '',
+      name: song.name || '',
+      artist: song.artist || 'Unknown Artist',
+      image: songArtwork,
+      url: song.url || '',
+      duration: song.duration || 0,
+      album: song.album || ''
+    };
+
+    const updatedPrevious = [
+      currentSongObj,
+      ...existingPrev.filter(s => s && s.id !== currentSongObj.id)
+    ].slice(0, 6);
+
     // Helper to sync to main user doc
     const syncToUser = async (count: any, streak: any, date: string) => { 
          await updateDoc(userRef, {
              lastActive: serverTimestamp(),
              totalPlays: increment(1),
-             lastPlayedSong: {
-                 id: song.id || '',
-                 name: song.name || '',
-                 artist: song.artist || '',
-                 image: song.image || ''
-             },
+             lastPlayedSong: currentSongObj,
+             previousSongs: updatedPrevious,
              playStats: {
                  date,
                  count,
@@ -144,12 +160,8 @@ export const recordSongPlay = async (userId: string, song: Song) => {
         await updateDoc(userRef, {
             lastActive: serverTimestamp(),
             totalPlays: increment(1),
-            lastPlayedSong: {
-                id: song.id || '',
-                name: song.name || '',
-                artist: song.artist || '',
-                image: song.image || ''
-            },
+            lastPlayedSong: currentSongObj,
+            previousSongs: updatedPrevious,
             'playStats.count': increment(1)
         });
       } else if (lastDate === yesterday) {

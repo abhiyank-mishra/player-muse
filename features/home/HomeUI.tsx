@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Search, Sparkles, Menu, RotateCw } from 'lucide-react';
 import FeaturedPlaylists from '@/components/FeaturedPlaylists';
@@ -7,6 +7,8 @@ import SongListItem from '@/components/SongListItem';
 import Footer from '@/components/Footer';
 import UserPlaylists from '@/components/UserPlaylists';
 import { HomeState, HomeActions } from './home.types';
+import { Song } from '@/lib/types';
+import { getPreviousSongs } from '@/lib/preferences';
 
 interface HomeUIProps {
   state: HomeState;
@@ -23,6 +25,23 @@ export default function HomeUI({ state, actions }: HomeUIProps) {
     setQuery, loadCommunityTrending, handlePlayAll, 
     toggleSidebar, setQueueConfig, playSong, searchMusic 
   } = actions;
+
+  const [previousSongs, setPreviousSongs] = useState<Song[]>([]);
+
+  useEffect(() => {
+    setPreviousSongs(getPreviousSongs());
+
+    const handleUpdate = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setPreviousSongs(e.detail);
+      } else {
+        setPreviousSongs(getPreviousSongs());
+      }
+    };
+
+    window.addEventListener('muse:previous_songs_updated', handleUpdate);
+    return () => window.removeEventListener('muse:previous_songs_updated', handleUpdate);
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && query.trim()) {
@@ -86,23 +105,16 @@ export default function HomeUI({ state, actions }: HomeUIProps) {
         {/* User Playlists Section (Moved to Top) */}
         {query.length === 0 && <UserPlaylists />}
 
-        {/* Made For You Section */}
+        {/* Muse For You Section */}
         {madeForYou.length > 0 && query.length === 0 && (
              <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h2 className="text-xl md:text-3xl font-bold text-white tracking-tight flex items-center gap-2">
-                        {madeForYouPersonalized ? 'Made For You' : 'Discover Music'}
-                        <span className={`px-1.5 py-0.5 text-[10px] md:text-xs rounded-md uppercase tracking-wider ${
-                            madeForYouPersonalized 
-                                ? 'bg-pink-600/20 text-pink-400'
-                                : 'bg-blue-600/20 text-blue-400'
-                        }`}>
-                            {madeForYouPersonalized ? 'Personalized' : 'Trending picks'}
-                        </span>
+                        {madeForYouPersonalized ? 'Muse for you' : 'Discover Music'}
                         </h2>
                         <p className="text-gray-500 text-[10px] md:text-sm mt-0.5">
-                            {madeForYouPersonalized ? 'Based on your recent listening' : 'Top songs to get you started'}
+                            {madeForYouPersonalized ? 'Persona' : 'Top songs to get you started'}
                         </p>
                     </div>
                 </div>
@@ -118,6 +130,33 @@ export default function HomeUI({ state, actions }: HomeUIProps) {
                     ))}
                 </div>
              </div>
+        )}
+
+        {/* Previous Muse Section */}
+        {previousSongs.length > 0 && query.length === 0 && (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl md:text-3xl font-bold text-white tracking-tight flex items-center gap-2">
+                  Previous Muse
+                </h2>
+                <p className="text-gray-500 text-[10px] md:text-sm mt-0.5">
+                  Recent 6 songs
+                </p>
+              </div>
+            </div>
+            {/* Horizontal Scroll row */}
+            <div className="flex w-full overflow-x-auto pb-6 hide-scrollbar" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+              {previousSongs.slice(0, 6).map((song) => (
+                <div key={`prev-${song.id}`} className="w-[140px] md:w-[160px] pr-4 md:pr-6 flex-shrink-0">
+                  <SongCard 
+                    song={song} 
+                    onPlay={() => playSong(song, 'standalone')}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Community Trending Section */}

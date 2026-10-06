@@ -317,3 +317,46 @@ export function resetGuestPlayCount() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(GUEST_PLAYS_KEY);
 }
+
+const PREVIOUS_SONGS_KEY = 'muse_previous_songs';
+
+export function getPreviousSongs(): Song[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(PREVIOUS_SONGS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 6) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function recordPreviousSong(song: Song): Song[] {
+  if (typeof window === 'undefined' || !song || !song.name) return [];
+  try {
+    const current = getPreviousSongs();
+    const cleanSong: Song = {
+      id: song.id || '',
+      name: song.name,
+      artist: song.artist || 'Unknown Artist',
+      album: song.album || '',
+      image: Array.isArray(song.image) ? song.image : [song.image || ''],
+      url: song.url || '',
+      duration: song.duration || 0,
+      has_lyrics: song.has_lyrics || 'false',
+      language: song.language || '',
+      year: song.year || '',
+      release_date: song.release_date || '',
+      source: song.source || 'saavn'
+    };
+    // Prepend to front, deduplicate by id, retain max 6 songs (FIFO drop oldest after 6)
+    const updated = [cleanSong, ...current.filter(s => s && s.id !== cleanSong.id)].slice(0, 6);
+    localStorage.setItem(PREVIOUS_SONGS_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new CustomEvent('muse:previous_songs_updated', { detail: updated }));
+    return updated;
+  } catch {
+    return [];
+  }
+}
+

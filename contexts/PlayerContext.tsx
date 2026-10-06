@@ -5,7 +5,7 @@ import { Song, PlayerState } from '@/lib/types';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { recordSongPlay } from '@/lib/ranking';
-import { incrementGuestPlayCount, getGuestPlayCount, updateWeights, recordSkipPreference } from '@/lib/preferences';
+import { incrementGuestPlayCount, getGuestPlayCount, updateWeights, recordSkipPreference, recordPreviousSong } from '@/lib/preferences';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import '@/core/player/YouTubePlayerPatch';
@@ -606,6 +606,7 @@ export const PlayerProvider = ({ children }: { children: ReactNode }) => {
     });
     MediaSessionBridge.setPlaybackState(true);
 
+    recordPreviousSong(song);
     if (user) recordSongPlay(user.uid, song);
   }, [user, authLoading, setLoginModalOpen, state.volume, seekTo, showToast]);
 

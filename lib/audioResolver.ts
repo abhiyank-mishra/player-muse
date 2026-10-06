@@ -2,6 +2,8 @@ import { decodeSaavnUrl } from './decoder';
 
 function cleanTrackName(title: string): string {
   return (title || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s*\(Official.*?\)/gi, '')
     .replace(/\s*\[Official.*?\]/gi, '')
     .replace(/\s*\(Video.*?\)/gi, '')
@@ -20,6 +22,8 @@ function cleanTrackName(title: string): string {
 
 function cleanForComparison(str: string): string {
   return (str || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/&amp;/g, '&')
     .replace(/&#039;/g, "'")
